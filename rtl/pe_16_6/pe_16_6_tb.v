@@ -1,186 +1,281 @@
 `timescale 1ns/1ps
+
+`define K_1x3;
+
+
+`ifdef  K_2x2
+  `define K_KH   2
+  `define K_KW   2
+  `define K_WAIT 2
+`elsif K_1x2
+  `define K_KH   1
+  `define K_KW   2
+  `define K_WAIT 0
+`elsif K_2x1
+  `define K_KH   2
+  `define K_KW   1
+  `define K_WAIT 0
+`elsif K_1x3
+  `define K_KH   1
+  `define K_KW   3
+  `define K_WAIT 1
+`elsif K_3x1
+  `define K_KH   3
+  `define K_KW   1
+  `define K_WAIT 1
+`elsif K_3x2
+  `define K_KH   3
+  `define K_KW   2
+  `define K_WAIT 4
+`elsif K_2x3
+  `define K_KH   2
+  `define K_KW   3
+  `define K_WAIT 4
+`elsif K_3x3
+  `define K_KH   3
+  `define K_KW   3
+  `define K_WAIT 7
+`else
+  // 默认走 3x3
+  `define K_KH   3
+  `define K_KW   3
+  `define K_WAIT 7
+`endif
+
 module pe_16_6_tb;
+
+
+  localparam integer KH      = `K_KH;
+  localparam integer KW      = `K_KW;
+  localparam integer WAIT    = `K_WAIT;
+  localparam integer P       = KH*KW;
+
+  localparam integer KMAX_H  = 3;                
+  localparam integer KMAX_W  = 3;                
+  localparam integer FM_COLS = 16 + KMAX_W - 1;  
+  localparam integer FM_ROWS = 6  + KMAX_H - 1;  
+  localparam integer FM_N    = FM_COLS*FM_ROWS;  
 
   //Ports
   reg clk;
   reg rstn;
   reg op;
-  reg  [17:0] wdata[0:143];
+  reg  [17:0] wdata[0:FM_N-1];
   reg         wdata_en;
   wire [17:0] right_a_in_last_line[0:5];
   wire [17:0] buttom_a_in_last_line[0:15];
   wire [17:0] load_a_in[0:95];
-  reg [17:0] load_b_in[0:95];
-  reg  start;
-  wire load_a_in_opt;
-  wire input_en;
+  reg  [17:0] load_b_in[0:95];
+  reg         start;
+  wire        load_a_in_opt;
+  wire        input_en;
   wire [47:0] PE_output[0:95];
-  wire output_en;
-  wire out_type;
+  wire        output_en;
+  wire        out_type;
 
-  feature_map_18_8  feature_map_18_8_inst (
-    .clk(clk),
-    .rstn(rstn),
-    .wdata(wdata),
-    .wdata_en(wdata_en),
-    .op(op),
-    .start(start),
+  feature_map_param #(
+    .ARRAY_ROWS(6), .ARRAY_COLS(16), .KMAX_H(KMAX_H), .KMAX_W(KMAX_W)
+  ) feature_map_inst (
+    .clk                 (clk),
+    .rstn                (rstn),
+    .wdata               (wdata),
+    .wdata_en            (wdata_en),
+    .op                  (op),
+    .kernel_width        (KW[2:0]),
+    .kernel_height       (KH[2:0]),
+    .start               (start),
     .right_a_in_last_line(right_a_in_last_line),
     .buttom_a_in_last_line(buttom_a_in_last_line),
-    .load_a_in(load_a_in),
-    .load_a_in_opt(load_a_in_opt),
-    .input_en(input_en)
+    .load_a_in           (load_a_in),
+    .load_a_in_opt       (load_a_in_opt),
+    .input_en            (input_en)
   );
-  pe_16_6 pe_16_6_inst (
-    .clk(clk),
-    .rstn(rstn),
-    .op(op),
+
+  pe_16_6 #(
+    .KERNEL_SIZE(3), .KERNEL_H(KMAX_H), .KERNEL_W(KMAX_W)
+  ) pe_16_6_inst (
+    .clk                 (clk),
+    .rstn                (rstn),
+    .op                  (op),
     .right_a_in_last_line(right_a_in_last_line),
     .buttom_a_in_last_line(buttom_a_in_last_line),
-    .load_a_in(load_a_in),
-    .load_b_in(load_b_in),
-    .load_a_in_opt(load_a_in_opt),
-    .input_en(input_en),
-    .PE_output(PE_output),
-    .out_type(out_type),
-    .output_en(output_en)
+    .load_a_in           (load_a_in),
+    .load_b_in           (load_b_in),
+    .kernel_width        (KW[2:0]),
+    .kernel_height       (KH[2:0]),
+    .load_a_in_opt       (load_a_in_opt),
+    .input_en            (input_en),
+    .PE_output           (PE_output),
+    .out_type            (out_type),
+    .output_en           (output_en)
   );
 
 always #10  clk = ! clk ;
-//op拉高为复用数据，拉低为直接相乘
-//关闭阵列：op拉高，不发start位
-//完成一次复用卷积:op拉高，发送一次start脉冲，计算过程中，op不能拉低，start不能重复发送脉冲
-//完成一次直接相乘： op拉低,需要同时加载计算数据(放在左上的16*6区域)
-//数据可以加载与start位同时变换
+
+  integer i;
+
+  //-------------------------------------------------------------------------
+  // 激励
+  //-------------------------------------------------------------------------
 initial begin
   clk=1'b0;rstn=1'b0;op=1;
-  for (integer i=0; i<96;i++)begin
+  for (i=0; i<96;i=i+1)begin
     load_b_in[i]=18'd1;
   end
-  #100 
+  for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]=18'd0;
+  end
+  wdata_en=1'b0; start=1'b0;
+
+
+  #100
   //拉高复位
   @(posedge clk)begin
     rstn<=1'b1;
   end
-  //第一次复用卷积
+
+  //================ 第一次复用卷积 (数据 = i+1) ================
    @(posedge clk)begin
     op=1;
     wdata_en<=1'b1;    start<=1'b1;
-    for (integer i=0; i<144;i++)begin
+    for (i=0; i<FM_N;i=i+1)begin
         wdata[i]<=i+1;
   end
   end
     @(posedge clk)begin
     wdata_en<=1'b0;   start<=1'b0;
-    for (integer i=0; i<144;i++)begin
+    for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=18'd0;
     end
   end
-  repeat(7)begin
+  repeat(WAIT)begin              
     @(posedge clk);
   end
-  //第二次复用卷积
-  @(posedge clk)begin
 
+  //================ 第二次复用卷积 (数据 = i+2) ================
+  @(posedge clk)begin
+    op=1;
     start=1;wdata_en<=1'b1;
-    for (integer i=0; i<144;i++)begin
+    for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+2;
     end
   end
     @(posedge clk)begin
     start=0;wdata_en<=1'b0;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=18'd0;
+    end
   end
-  repeat(7)begin
+  repeat(WAIT)begin
     @(posedge clk);
   end
-  //插入一周期的不复用乘法
+
+  //================ 插入周期的不复用乘法 
   @(posedge clk)begin
     op=0;
-    wdata_en<=1'b1;   
-    for (integer i=0; i<144;i++)begin
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+3;
   end
-  //第三次复用卷积
-   end
+  end
+    @(posedge clk)begin
+    op=0;
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+4;
+  end
+  end
+    @(posedge clk)begin
+    op=0;
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+5;
+  end
+  end
+
+  //================ 第三次复用卷积 
      @(posedge clk)begin
     op=1;start<=1'b1;
-    wdata_en<=1'b1;   
-    for (integer i=0; i<144;i++)begin
-    wdata[i]<=i+4;
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+6;
   end
    end
     @(posedge clk)begin
     start<=1'b0;
-    wdata_en<=1'b0;   
-    for (integer i=0; i<144;i++)begin
+    wdata_en<=1'b0;
+    for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=18'd0;
   end
-  repeat(10)begin
+  end
+  repeat(WAIT)begin
     @(posedge clk);
   end
-  //直接乘法
+
+  //================ 直接乘法 
    @(posedge clk)begin
     op=0;
-    wdata_en<=1'b1;   
-    for (integer i=0; i<144;i++)begin
-    wdata[i]<=i+5;
-  end
-   end
-      @(posedge clk)begin
-    op=0;
-    wdata_en<=1'b1;   
-    for (integer i=0; i<144;i++)begin
-    wdata[i]<=i+6;
-  end
-   end
-      @(posedge clk)begin
-    op=0;
-    wdata_en<=1'b1;   
-    for (integer i=0; i<144;i++)begin
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+7;
   end
    end
       @(posedge clk)begin
     op=0;
-    wdata_en<=1'b1;   
-    for (integer i=0; i<144;i++)begin
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+8;
   end
    end
       @(posedge clk)begin
     op=0;
-    wdata_en<=1'b1;   
-    for (integer i=0; i<144;i++)begin
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+9;
   end
    end
       @(posedge clk)begin
     op=0;
-    wdata_en<=1'b1;   
-    for (integer i=0; i<144;i++)begin
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+10;
   end
    end
-
-  repeat(10)begin
-    @(posedge clk);
+      @(posedge clk)begin
+    op=0;
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+11;
   end
-//第四次复用卷积
+   end
+      @(posedge clk)begin
+    op=0;
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+12;
+  end
+   end
+
+  //================ 第四次复用卷积 
     @(posedge clk)begin
     op=1;start<=1'b1;
-    wdata_en<=1'b1;   
-    for (integer i=0; i<144;i++)begin
-    wdata[i]<=i+11;
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+13;
   end
    end
     @(posedge clk)begin
     start<=1'b0;
-    wdata_en<=1'b0;   
-    for (integer i=0; i<144;i++)begin
+    wdata_en<=1'b0;
+    for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=18'd0;
   end
    end
-    end
+  repeat(30)begin
+    @(posedge clk);
   end
+
+  $finish;
+end
 
 endmodule

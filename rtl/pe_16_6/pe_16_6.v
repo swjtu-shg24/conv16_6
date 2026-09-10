@@ -1,5 +1,7 @@
 module pe_16_6#(
-   parameter  KERNEL_SIZE=3
+   parameter  KERNEL_SIZE=3,
+   parameter [2:0] KERNEL_H=3,     // 卷积核高（同时送 feature_map 与各 PE）
+   parameter [2:0] KERNEL_W=3      // 卷积核宽
 )(
     input        clk,
     input        rstn,
@@ -10,6 +12,9 @@ module pe_16_6#(
     input [17:0] load_b_in[0:95],       //b为参数
     input        load_a_in_opt, 
     input        input_en,
+    input  wire  [2:0]   kernel_width,
+    input  wire  [2:0]   kernel_height,
+
 
     output [47:0] PE_output[0:95],
     output        out_type,
@@ -74,8 +79,8 @@ generate
       .load_a_in      (load_a_in[i]),
       .load_b_in      (load_b_in[i]),
       .load_a_in_opt  (load_a_in_opt),  
-      .kernel_width    (3'd3),  
-      .kernel_height   (3'd3),
+      .kernel_width    (kernel_width),
+      .kernel_height   (kernel_height),
        
       .input_en        (input_en),
       .left_a_out      (left_a_out[i]),

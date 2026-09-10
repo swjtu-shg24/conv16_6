@@ -21,7 +21,7 @@ module pe
     output        output_en
 );
             //reg
-reg [17:0]  input_reg_a[0:2];
+reg [17:0]  input_reg_a[0:4];   // 垂直重用链，深度需 ≥ KMAX_W（最大抽头 kernel_width-1）
 reg [17:0]  input_reg_b;
 reg  [23:0]  load_a_in_opt_reg;
 reg         buttom_a_in_opt;
@@ -36,15 +36,14 @@ wire [47:0]  dsp_o;//DSP48 48-bit 主输出
             //assign
 assign       right_a_in_opt=(op_reg[0]==1'b1)&&(!load_a_in_opt)&&(!buttom_a_in_opt);
 assign       left_a_out=(right_a_in_opt==1'b1)?input_reg_a[0]:18'd0;
-assign       top_a_out=(buttom_a_in_opt==1'b1)?input_reg_a[2]:18'd0;
+assign       top_a_out=(buttom_a_in_opt==1'b1)?input_reg_a[kernel_width-3'd1]:18'd0;
 assign       output_en=input_en_reg2;
 
 wire   [4:0] layer_en;
-assign  layer_en[0]=kernel_height>=3'd1;
-assign  layer_en[1]=kernel_height>=3'd2;
-assign  layer_en[2]=kernel_height>=3'd5;
+assign  layer_en[0]=kernel_height>=3'd2;
+assign  layer_en[1]=kernel_height>=3'd3;
+assign  layer_en[2]=kernel_height>=3'd4;
 assign  layer_en[3]=kernel_height>=3'd5;
-assign  layer_en[4]=kernel_height>=3'd5;
             //always
 //right_a_in_opt
 
@@ -53,13 +52,14 @@ always @(posedge clk ) begin
      load_a_in_opt_reg<=  {load_a_in_opt_reg[22:0],load_a_in_opt&&op_reg[0]};
 end
 
+wire load_opt_m0 = (kernel_width >= 3'd2) ? load_a_in_opt_reg[kernel_width-3'd2]
+                                          : load_a_in_opt;
 
 always @(posedge clk ) begin
-    buttom_a_in_opt<= (kernel_width>=3'd2)&&((layer_en[0])&&load_a_in_opt_reg[kernel_width-3'd2])||
-                                            ((layer_en[1])&&load_a_in_opt_reg[2*kernel_width-3'd2])||
-                                            ((layer_en[2])&&load_a_in_opt_reg[3*kernel_width-3'd2])||
-                                            ((layer_en[3])&&load_a_in_opt_reg[4*kernel_width-3'd2])||
-                                            ((layer_en[4])&&load_a_in_opt_reg[5*kernel_width-3'd2]);
+    buttom_a_in_opt<= (layer_en[0]&&load_opt_m0)||
+                      (layer_en[1]&&load_a_in_opt_reg[2*kernel_width-3'd2])||
+                      (layer_en[2]&&load_a_in_opt_reg[3*kernel_width-3'd2])||
+                      (layer_en[3]&&load_a_in_opt_reg[4*kernel_width-3'd2]);
 end
 //input_en_reg;op_reg[0]    
 
@@ -89,10 +89,10 @@ always @(posedge clk ) begin
             input_reg_a[0]<=18'd0;
     end
 end
-//input_reg_a[1:2];
+//input_reg_a[1:4]; 垂直重用链：每拍上移一级
+integer m;
 always @(posedge clk ) begin
-    input_reg_a[2]<=input_reg_a[1];
-    input_reg_a[1]<=input_reg_a[0];
+    for (m=4; m>=1; m=m-1) input_reg_a[m]<=input_reg_a[m-1];
 end
 
 //input_reg_a
