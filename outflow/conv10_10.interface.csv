@@ -1,0 +1,14 @@
+
+# Efinity Interface Configuration
+# Version: 2026.1.132
+# Date: 2026-08-25 22:42
+
+# Copyright (C) 2013 - 2026 Efinix Inc. All rights reserved.
+
+# [required | optional] (input|output|clkout), x, y, z, __bypass__|[~|!]<clock>, [[~|!]<pin_name>] | __vcc__ | __gnd__
+output, 219, 8, 2, __bypass__, led
+input, 0, 312, 1, __bypass__, pll_inst1_LOCKED
+optional input, 0, 313, 3, __bypass__, sys_clk_24mhz
+input, 0, 162, 1, __bypass__, ~pll_inst1_CLKOUT0
+input, 0, 159, 1, __bypass__, ~pll_inst1_CLKOUT1
+input, 0, 163, 1, __bypass__, ~pll_inst1_CLKOUT2

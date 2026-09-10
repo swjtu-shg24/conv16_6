@@ -1,0 +1,333 @@
+           
+           Elitestek FPGA Placement and Routing.
+           Version: 2026.1.132 
+           Compiled: May 29 2026.
+           
+           Copyright (C) 2013 - 2026 Efinix, Inc. All rights reserved.
+
+           
+           The Tool Is Based on VPR of University of Toronto,
+           a free open source code under MIT license.
+           
+WARNING  : Found 3600 warnings in the post-synthesis netlist.
+INFO     : Reading core interface constraints file "D:/my_code/fpga/yilisi/conv10_10/outflow/conv10_10.interface.csv" [DBMsg::CoreInterfaceConstraintsFileReading]
+INFO     : Successfully read core interface constraints file "D:/my_code/fpga/yilisi/conv10_10/outflow/conv10_10.interface.csv" [DBMsg::CoreInterfaceConstraintsFileLoadSuccess]
+WARNING  : logical_block pe_10_10_inst/pe_gen[10].pe_inst/u_dsp #950 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[11].pe_inst/u_dsp #972 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[12].pe_inst/u_dsp #994 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[13].pe_inst/u_dsp #1016 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[14].pe_inst/u_dsp #1038 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[15].pe_inst/u_dsp #1060 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[16].pe_inst/u_dsp #1082 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[17].pe_inst/u_dsp #1104 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[18].pe_inst/u_dsp #1123 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[19].pe_inst/u_dsp #1139 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[20].pe_inst/u_dsp #1175 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[21].pe_inst/u_dsp #1197 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[22].pe_inst/u_dsp #1219 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[23].pe_inst/u_dsp #1241 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[24].pe_inst/u_dsp #1263 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[25].pe_inst/u_dsp #1285 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[26].pe_inst/u_dsp #1307 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[27].pe_inst/u_dsp #1329 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[28].pe_inst/u_dsp #1348 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[29].pe_inst/u_dsp #1364 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[2].pe_inst/u_dsp #1372 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[30].pe_inst/u_dsp #1394 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[31].pe_inst/u_dsp #1416 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[32].pe_inst/u_dsp #1438 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[33].pe_inst/u_dsp #1460 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[34].pe_inst/u_dsp #1482 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[35].pe_inst/u_dsp #1504 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[36].pe_inst/u_dsp #1526 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[37].pe_inst/u_dsp #1548 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[38].pe_inst/u_dsp #1567 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[39].pe_inst/u_dsp #1583 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[3].pe_inst/u_dsp #1591 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[40].pe_inst/u_dsp #1613 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[41].pe_inst/u_dsp #1635 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[42].pe_inst/u_dsp #1657 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[43].pe_inst/u_dsp #1679 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[44].pe_inst/u_dsp #1701 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[45].pe_inst/u_dsp #1723 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[46].pe_inst/u_dsp #1745 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[47].pe_inst/u_dsp #1767 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[48].pe_inst/u_dsp #1786 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[49].pe_inst/u_dsp #1802 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[4].pe_inst/u_dsp #1810 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[50].pe_inst/u_dsp #1832 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[51].pe_inst/u_dsp #1854 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[52].pe_inst/u_dsp #1876 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[53].pe_inst/u_dsp #1898 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[54].pe_inst/u_dsp #1920 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[55].pe_inst/u_dsp #1942 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[56].pe_inst/u_dsp #1964 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[57].pe_inst/u_dsp #1986 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[58].pe_inst/u_dsp #2005 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[59].pe_inst/u_dsp #2018 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[5].pe_inst/u_dsp #2026 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[60].pe_inst/u_dsp #2048 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[61].pe_inst/u_dsp #2070 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[62].pe_inst/u_dsp #2092 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[63].pe_inst/u_dsp #2114 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[64].pe_inst/u_dsp #2136 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[65].pe_inst/u_dsp #2158 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[66].pe_inst/u_dsp #2180 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[67].pe_inst/u_dsp #2199 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[68].pe_inst/u_dsp #2215 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[69].pe_inst/u_dsp #2225 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[6].pe_inst/u_dsp #2233 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[70].pe_inst/u_dsp #2255 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[71].pe_inst/u_dsp #2277 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[72].pe_inst/u_dsp #2299 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[73].pe_inst/u_dsp #2321 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[74].pe_inst/u_dsp #2343 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[75].pe_inst/u_dsp #2365 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[76].pe_inst/u_dsp #2387 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[77].pe_inst/u_dsp #2403 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[78].pe_inst/u_dsp #2416 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[79].pe_inst/u_dsp #2423 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[7].pe_inst/u_dsp #2431 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[80].pe_inst/u_dsp #2450 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[81].pe_inst/u_dsp #2469 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[82].pe_inst/u_dsp #2488 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[83].pe_inst/u_dsp #2507 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[84].pe_inst/u_dsp #2526 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[85].pe_inst/u_dsp #2545 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[86].pe_inst/u_dsp #2564 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[87].pe_inst/u_dsp #2577 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[88].pe_inst/u_dsp #2584 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[89].pe_inst/u_dsp #2591 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[8].pe_inst/u_dsp #2598 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[90].pe_inst/u_dsp #2614 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[91].pe_inst/u_dsp #2630 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[92].pe_inst/u_dsp #2646 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[93].pe_inst/u_dsp #2656 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[94].pe_inst/u_dsp #2666 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[95].pe_inst/u_dsp #2676 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[96].pe_inst/u_dsp #2686 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[97].pe_inst/u_dsp #2693 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[98].pe_inst/u_dsp #2694 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[99].pe_inst/u_dsp #2695 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[9].pe_inst/u_dsp #2701 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[10].pe_inst/u_dsp #950 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[11].pe_inst/u_dsp #972 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[12].pe_inst/u_dsp #994 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[13].pe_inst/u_dsp #1016 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[14].pe_inst/u_dsp #1038 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[15].pe_inst/u_dsp #1060 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[16].pe_inst/u_dsp #1082 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[17].pe_inst/u_dsp #1104 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[18].pe_inst/u_dsp #1123 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[19].pe_inst/u_dsp #1139 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[20].pe_inst/u_dsp #1175 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[21].pe_inst/u_dsp #1197 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[22].pe_inst/u_dsp #1219 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[23].pe_inst/u_dsp #1241 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[24].pe_inst/u_dsp #1263 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[25].pe_inst/u_dsp #1285 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[26].pe_inst/u_dsp #1307 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[27].pe_inst/u_dsp #1329 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[28].pe_inst/u_dsp #1348 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[29].pe_inst/u_dsp #1364 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[2].pe_inst/u_dsp #1372 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[30].pe_inst/u_dsp #1394 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[31].pe_inst/u_dsp #1416 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[32].pe_inst/u_dsp #1438 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[33].pe_inst/u_dsp #1460 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[34].pe_inst/u_dsp #1482 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[35].pe_inst/u_dsp #1504 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[36].pe_inst/u_dsp #1526 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[37].pe_inst/u_dsp #1548 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[38].pe_inst/u_dsp #1567 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[39].pe_inst/u_dsp #1583 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[3].pe_inst/u_dsp #1591 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[40].pe_inst/u_dsp #1613 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[41].pe_inst/u_dsp #1635 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[42].pe_inst/u_dsp #1657 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[43].pe_inst/u_dsp #1679 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[44].pe_inst/u_dsp #1701 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[45].pe_inst/u_dsp #1723 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[46].pe_inst/u_dsp #1745 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[47].pe_inst/u_dsp #1767 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[48].pe_inst/u_dsp #1786 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[49].pe_inst/u_dsp #1802 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[4].pe_inst/u_dsp #1810 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[50].pe_inst/u_dsp #1832 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[51].pe_inst/u_dsp #1854 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[52].pe_inst/u_dsp #1876 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[53].pe_inst/u_dsp #1898 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[54].pe_inst/u_dsp #1920 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[55].pe_inst/u_dsp #1942 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[56].pe_inst/u_dsp #1964 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[57].pe_inst/u_dsp #1986 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[58].pe_inst/u_dsp #2005 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[59].pe_inst/u_dsp #2018 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[5].pe_inst/u_dsp #2026 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[60].pe_inst/u_dsp #2048 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[61].pe_inst/u_dsp #2070 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[62].pe_inst/u_dsp #2092 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[63].pe_inst/u_dsp #2114 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[64].pe_inst/u_dsp #2136 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[65].pe_inst/u_dsp #2158 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[66].pe_inst/u_dsp #2180 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[67].pe_inst/u_dsp #2199 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[68].pe_inst/u_dsp #2215 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[69].pe_inst/u_dsp #2225 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[6].pe_inst/u_dsp #2233 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[70].pe_inst/u_dsp #2255 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[71].pe_inst/u_dsp #2277 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[72].pe_inst/u_dsp #2299 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[73].pe_inst/u_dsp #2321 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[74].pe_inst/u_dsp #2343 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[75].pe_inst/u_dsp #2365 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[76].pe_inst/u_dsp #2387 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[77].pe_inst/u_dsp #2403 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[78].pe_inst/u_dsp #2416 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[79].pe_inst/u_dsp #2423 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[7].pe_inst/u_dsp #2431 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[80].pe_inst/u_dsp #2450 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[81].pe_inst/u_dsp #2469 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[82].pe_inst/u_dsp #2488 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[83].pe_inst/u_dsp #2507 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[84].pe_inst/u_dsp #2526 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[85].pe_inst/u_dsp #2545 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[86].pe_inst/u_dsp #2564 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[87].pe_inst/u_dsp #2577 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[88].pe_inst/u_dsp #2584 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[89].pe_inst/u_dsp #2591 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[8].pe_inst/u_dsp #2598 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[90].pe_inst/u_dsp #2614 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[91].pe_inst/u_dsp #2630 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[92].pe_inst/u_dsp #2646 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[93].pe_inst/u_dsp #2656 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[94].pe_inst/u_dsp #2666 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[95].pe_inst/u_dsp #2676 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[96].pe_inst/u_dsp #2686 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[97].pe_inst/u_dsp #2693 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[98].pe_inst/u_dsp #2694 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[99].pe_inst/u_dsp #2695 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+WARNING  : logical_block pe_10_10_inst/pe_gen[9].pe_inst/u_dsp #2701 has no fanout [DBMsg::NetlistLogicalBlockNoFanout]
+INFO     : Reading core interface constraints file "D:/my_code/fpga/yilisi/conv10_10/outflow/conv10_10.interface.csv" [DBMsg::CoreInterfaceConstraintsFileReading]
+INFO     : Successfully read core interface constraints file "D:/my_code/fpga/yilisi/conv10_10/outflow/conv10_10.interface.csv" [DBMsg::CoreInterfaceConstraintsFileLoadSuccess]
+INFO     : XLR count after merging: 1966
+INFO     : Netlist has 854 luts, 1718 ffs and 31 adders [PackerMsg::NetlistStatistics]
+INFO     : Packed into 1966 clusters with 2.0452695(1.0055951) inputs(outputs) per cluster for a total of 4021(1977) inputs(outputs) [PackerMsg::ClusterPackingStatistics]
+INFO     : Packed into 1966 xlrs with 2.0452695(1.0055951) inputs(outputs) per xlr for a total of 4021(1977) inputs(outputs) [PackerMsg::XLRPackingStatistics]
+INFO     : Packed 0 fracturable DSPs into 0 clusters [PackerMsg::DSPPackingStatistics]
+INFO     : Packing took 0.6915226 seconds [FlowMsg::StageDuration]
+INFO     :     Packing took 0.609375 seconds (approximately) in total CPU time [FlowMsg::StageDuration::CPUTime]
+INFO     : Packing virtual memory usage: begin = 59.516 MB, end = 122.164 MB, delta = 62.648 MB [FlowMsg::VMUsage]
+INFO     :     Packing peak virtual memory usage = 122.172 MB [FlowMsg::VMUsage::Peak]
+INFO     : Packing resident set memory usage: begin = 63.244 MB, end = 132.868 MB, delta = 69.624 MB [FlowMsg::RSSUsage]
+INFO     :     Packing peak resident set memory usage = 132.868 MB [FlowMsg::RSSUsage::Peak]
+WARNING  : No ports matched 'pll_inst1_CLKOUT0'
+WARNING  : [SDC D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc:1] No valid pin(s) found for clock
+WARNING  : [SDC D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc:1] Unable to run 'create_clock' constraint due to warnings found
+WARNING  : No ports matched 'pll_inst1_CLKOUT2'
+WARNING  : [SDC D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc:3] No valid pin(s) found for clock
+WARNING  : [SDC D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc:3] Unable to run 'create_clock' constraint due to warnings found
+INFO     : SDC file 'D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc' parsed successfully.
+INFO     : Reading core interface constraints file "D:/my_code/fpga/yilisi/conv10_10/outflow/conv10_10.interface.csv" [DBMsg::CoreInterfaceConstraintsFileReading]
+INFO     : Successfully read core interface constraints file "D:/my_code/fpga/yilisi/conv10_10/outflow/conv10_10.interface.csv" [DBMsg::CoreInterfaceConstraintsFileLoadSuccess]
+INFO     : Starting Global Placer with 8 threads ...
+            ----------     -------  --------------     -------
+             Iteration       WHPWL Worst Slack (ps) Convergence
+            ----------     -------  --------------     -------
+INFO     :           1      174170             171         0.4%
+INFO     :           2      143480             196         0.5%
+INFO     :           3      107875             200         0.7%
+INFO     :           4       98218             232         0.9%
+INFO     :           5       91349             254         1.6%
+INFO     :           6       80146             325         4.6%
+INFO     :           7       58825             344        13.4%
+INFO     :           8       50740             354        25.8%
+INFO     :           9       48679             382        44.5%
+INFO     :          10       47321             364        67.3%
+INFO     :          11       46909             307        81.2%
+INFO     :          12       46352             301        86.5%
+INFO     :          13       46489             285        88.5%
+INFO     :          14       46734             301        89.2%
+INFO     :          15       46896             252        89.6%
+INFO     :          16       47024             253        89.7%
+INFO     :          17       47048             250        89.8%
+INFO     :          18       46964             250        90.3%
+INFO     :          19       46956             279        91.3%
+INFO     :          20       46917             250        91.9%
+INFO     :          21       46816             254        92.9%
+INFO     :          22       46909             250        93.7%
+INFO     :          23       46852             239        94.4%
+INFO     :          24       46838             239        95.1%
+INFO     :          25       46043               4        95.4%
+INFO     :          26       46015             259        96.3%
+INFO     :          27       45899             252        97.1%
+INFO     :          28       45992             252        97.7%
+INFO     :          29       46058             255        98.3%
+INFO     :          30       46057             255        98.6%
+INFO     :          31       46132             245        99.0%
+INFO     : GP: best_placement: wpd: 1140
+INFO     : Starting Annealer
+            ----------     -------  --------------     -------
+             Iteration       WHPWL  Delay Max (ps)     R Limit
+            ----------     -------  --------------     -------
+INFO     :           0        8813            1789        30.0
+INFO     :           1        9775            1589        29.2
+INFO     :           2        9819            1724        27.9
+INFO     :           3        9485            1661        26.6
+INFO     :           4        9246            1661        25.1
+INFO     :           5        9083            1661        23.4
+INFO     :           6        8981            1549        21.9
+INFO     :           7        8660            1549        20.4
+INFO     :           8        8502            1539        18.9
+INFO     :           9        8350            1617        17.5
+INFO     :          10        8238            1517        16.2
+INFO     :          11        8026            1517        14.9
+INFO     :          12        7846            1517        13.7
+INFO     :          13        7782            1517        12.5
+INFO     :          14        7709            1517        11.4
+INFO     :          15        7672            1517        10.5
+INFO     :          16        7570            1517         9.6
+INFO     :          17        7413            1517         8.8
+INFO     :          18        7323            1549         8.0
+INFO     :          19        7229            1549         7.3
+INFO     :          20        7167            1529         6.7
+INFO     :          21        7088            1529         6.0
+INFO     :          22        7034            1510         5.5
+INFO     :          23        6983            1497         5.0
+INFO     :          24        6917            1497         4.4
+INFO     : DP: best_placement: wpd: 1104.76
+INFO     : Placement successful: 2066 cells are placed
+INFO     : Peak congestion smeared over 4x4 of the chip is 0.312245 at 82,115
+INFO     : Peak congestion smeared over 1/16 of the chip is 0.211611 at 127,110
+INFO     : Peak congestion smeared over 1/4 of the chip is 0.108563 at 94,97
+INFO     : Congestion-weighted HPWL per net: 18.7889
+INFO     : Post-placement cluster-level checks is successful
+INFO     : Post-placement primitive-level checks is successful
+INFO     : Placement took 1.9395679 seconds [FlowMsg::StageDuration]
+INFO     :     Placement took 3.78125 seconds (approximately) in total CPU time [FlowMsg::StageDuration::CPUTime]
+INFO     : Placement virtual memory usage: begin = 62.164 MB, end = 137.956 MB, delta = 75.792 MB [FlowMsg::VMUsage]
+INFO     :     Placement peak virtual memory usage = 156.184 MB [FlowMsg::VMUsage::Peak]
+INFO     : Placement resident set memory usage: begin = 74.508 MB, end = 149.74 MB, delta = 75.232 MB [FlowMsg::RSSUsage]
+INFO     :     Placement peak resident set memory usage = 167.056 MB [FlowMsg::RSSUsage::Peak]
+WARNING  : No ports matched 'pll_inst1_CLKOUT0'
+WARNING  : [SDC D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc:1] No valid pin(s) found for clock
+WARNING  : [SDC D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc:1] Unable to run 'create_clock' constraint due to warnings found
+WARNING  : No ports matched 'pll_inst1_CLKOUT2'
+WARNING  : [SDC D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc:3] No valid pin(s) found for clock
+WARNING  : [SDC D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc:3] Unable to run 'create_clock' constraint due to warnings found
+INFO     : SDC file 'D:/my_code/fpga/yilisi/conv10_10/pe_10_10_conv.sdc.sdc' parsed successfully.
+Maximum possible analyzed clocks frequency
+   Clock Name     Period (ns)  Frequency (MHz)     Edge
+pll_inst1_CLKOUT1    1.623        616.143         (R-R)
+
+Geomean max period: 1.623
+
+Setup (Max) Clock Relationship
+  Launch Clock      Capture Clock   Constraint (ns)     Slack (ns)          Edge
+pll_inst1_CLKOUT1 pll_inst1_CLKOUT1      2.000            0.377            (R-R)
+
+Hold (Min) Clock Relationship
+  Launch Clock      Capture Clock   Constraint (ns)     Slack (ns)          Edge
+pll_inst1_CLKOUT1 pll_inst1_CLKOUT1      0.000            0.180            (R-R)
+
+INFO     : Write Timing Report to "D:/my_code/fpga/yilisi/conv10_10/outflow/conv10_10.place.timing.rpt" ...

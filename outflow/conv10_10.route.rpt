@@ -1,0 +1,27 @@
+
+Elitestek FPGA Placement and Routing.
+Version: 2026.1.132 
+Date: Tue Aug 25 22:42:40 2026
+
+Copyright (C) 2013 - 2026 Efinix, Inc. All rights reserved.
+ 
+Family: Titanium 
+Device: Ti60F225
+Top-level Entity Name: conv10_10
+Elapsed time for routing: 0 hours 0 minutes 2 seconds
+
+
+---------- GBUFCE Assignments (begin) ----------
+
+
++-------------------+----------+----------+
+|     Clock Net     | GBUFCE_X | GBUFCE_Y |
++-------------------+----------+----------+
+| pll_inst1_CLKOUT1 |    1     |   159    |
++-------------------+----------+----------+
+
+
+----------- GBUFCE Assignments (end) ----------
+
+
+Elapsed time for Latest PnR Run: 0 hours 0 minutes 6 seconds

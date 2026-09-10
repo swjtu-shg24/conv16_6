@@ -1,0 +1,77 @@
+# //  ModelSim SE-64 10.4 Dec  3 2014 
+# //
+# //  Copyright 1991-2014 Mentor Graphics Corporation
+# //  All Rights Reserved.
+# //
+# //  THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY INFORMATION
+# //  WHICH IS THE PROPERTY OF MENTOR GRAPHICS CORPORATION OR ITS
+# //  LICENSORS AND IS SUBJECT TO LICENSE TERMS.
+# //  THIS DOCUMENT CONTAINS TRADE SECRETS AND COMMERCIAL OR FINANCIAL
+# //  INFORMATION THAT ARE PRIVILEGED, CONFIDENTIAL, AND EXEMPT FROM
+# //  DISCLOSURE UNDER THE FREEDOM OF INFORMATION ACT, 5 U.S.C. SECTION 552.
+# //  FURTHERMORE, THIS INFORMATION IS PROHIBITED FROM DISCLOSURE UNDER
+# //  THE TRADE SECRETS ACT, 18 U.S.C. SECTION 1905.
+# //
+# do sim_10_10.do
+# ** Warning: (vlib-34) Library already exists at "work".
+# 
+# ** Note: (vlog-1901) OptionFile "D:/my_code/fpga/ziguang_verilog/dsp/DSP/sim/behav/vlog.opt" not found. Ignored.
+# 
+# Model Technology ModelSim SE-64 vlog 10.4 Compiler 2014.12 Dec  3 2014
+# Start time: 02:46:38 on Aug 12,2026
+# vlog -reportprogress 300 -work work -f filelist.f 
+# -- Compiling module EFX_DSP48
+# -- Compiling module EFX_DSP48_int
+# -- Compiling module EFX_DSP48_float
+# -- Compiling module EFX_DSP48_pipe
+# -- Compiling module EFX_DSP48_mult_mode
+# -- Compiling module EFX_DSP48_mult
+# -- Compiling module EFX_DSP48_p_extender
+# -- Compiling module EFX_DSP48_c_extender
+# -- Compiling module EFX_DSP48_extender
+# -- Compiling module EFX_DSP48_shifter_mode
+# -- Compiling module EFX_DSP48_shifter
+# -- Compiling module EFX_DSP48_add_sub_mode
+# -- Compiling module EFX_DSP48_add_sub
+# -- Compiling module f_mulAdd
+# -- Compiling module fp_fmt_conv
+# -- Compiling module feature_map_12_12
+# -- Compiling module pe
+# -- Compiling module pe_10_10
+# -- Compiling module pe_10_10_tb
+# 
+# Top level modules:
+# 	pe_10_10_tb
+# End time: 02:46:38 on Aug 12,2026, Elapsed time: 0:00:00
+# Errors: 0, Warnings: 0
+# vsim -do "do sim_10_10.do" 
+# Start time: 02:46:38 on Aug 12,2026
+# ** Warning: (vsim-8891) All optimizations are turned off because the -novopt switch is in effect. This will cause your simulation to run very slowly. If you are using this switch to preserve visibility for Debug or PLI features please see the User's Manual section on Preserving Object Visibility with vopt.
+# 
+# Loading sv_std.std
+# Loading work.pe_10_10_tb
+# Loading work.feature_map_12_12
+# Loading work.pe_10_10
+# Loading work.pe
+# Loading work.EFX_DSP48
+# Loading work.EFX_DSP48_int
+# Loading work.EFX_DSP48_pipe
+# Loading work.EFX_DSP48_mult_mode
+# Loading work.EFX_DSP48_p_extender
+# Loading work.EFX_DSP48_c_extender
+# Loading work.EFX_DSP48_shifter
+# Loading work.EFX_DSP48_add_sub_mode
+# Loading work.EFX_DSP48_shifter_mode
+# Loading work.EFX_DSP48_mult
+# Loading work.EFX_DSP48_extender
+# Loading work.EFX_DSP48_add_sub
+# .main_pane.wave.interior.cs.body.pw.wf
+# ** Warning: (vsim-WLF-5000) WLF file currently in use: vsim.wlf
+# 
+#           File in use by: Administrator  Hostname: PC-20251111DVIJ  ProcessID: 22928
+# 
+#           Attempting to use alternate WLF file "./wlftec90iz".
+# ** Warning: (vsim-WLF-5001) Could not open WLF file: vsim.wlf
+# 
+#           Using alternate file: ./wlftec90iz
+# 

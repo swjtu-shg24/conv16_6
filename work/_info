@@ -1,0 +1,528 @@
+m255
+K4
+z2
+13
+!s112 1.1
+!i10d 8192
+!i10e 25
+!i10f 100
+cModel Technology
+Z0 dd:/my_code/fpga/yilisi/conv10_10
+vEFX_DSP48
+Z1 DXx6 sv_std 3 std 0 22 WmjPaeP=7F5?QFXzJ>D[Q2
+Z2 !s110 1786473998
+!i10b 1
+!s100 MNKgz13W]Tf^;5nEVEfil1
+IWmEm`3CTJFhO56UU[OVL[2
+Z3 VDg1SIo80bB@j0V0VzS_@n1
+Z4 !s105 efx_dsp48_v_unit
+S1
+R0
+Z5 w1786440918
+Z6 8D:/my_code/fpga/yilisi/conv/yilisi_sim_models/efx_dsp48.v
+Z7 FD:/my_code/fpga/yilisi/conv/yilisi_sim_models/efx_dsp48.v
+L0 26
+Z8 OL;L;10.4;61
+r1
+!s85 0
+31
+Z9 !s108 1786473998.423000
+Z10 !s107 D:/my_code/fpga/yilisi/conv10_10/pe_10_10_tb.v|D:/my_code/fpga/yilisi/conv10_10/pe_10_10.v|D:/my_code/fpga/yilisi/conv10_10/pe.v|D:/my_code/fpga/yilisi/conv10_10/feature_map_12_12.v|D:/my_code/fpga/yilisi/conv/yilisi_sim_models/efx_dsp48.v|
+Z11 !s90 -reportprogress|300|-work|work|-f|filelist.f|
+!i113 1
+Z12 o-work work -L mtiAvm -L mtiRnm -L mtiOvm -L mtiUvm -L mtiUPF -L infact
+Z13 tSvlog 1
+n@e@f@x_@d@s@p48
+vEFX_DSP48_add_sub
+R1
+R2
+!i10b 1
+!s100 `laXjZWIKNB[6mD`LdC9K2
+IYm3^ZMhoj8Gh>4NYkTleV3
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 801
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_add_sub
+vEFX_DSP48_add_sub_mode
+R1
+R2
+!i10b 1
+!s100 bYJSIP:a5EcTgJOM@gh0J3
+IL@bfb3e2mTfg1V<8:KzWG0
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 767
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_add_sub_mode
+vEFX_DSP48_c_extender
+R1
+R2
+!i10b 1
+!s100 Lf29O@A56LDV>8iOR9h4h0
+I^V?4T<<C_8G6D7G0GMb<D0
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 661
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_c_extender
+vEFX_DSP48_extender
+R1
+R2
+!i10b 1
+!s100 k@KOE_]f[OIhNZV4n1PgL2
+IRhW3@XZg]2lJ6Q8gReIa>1
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 697
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_extender
+vEFX_DSP48_float
+R1
+R2
+!i10b 1
+!s100 ]:Y7QM@AP=J?0?3z^bgTo1
+IoLSgzDkgCK`l[Dg0n;;7V3
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 374
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_float
+vEFX_DSP48_int
+R1
+R2
+!i10b 1
+!s100 ^gA`cjJ_?g>od?KD15oFR1
+IHN0ln7@j<]6oYl;:b=:@@0
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 240
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_int
+vEFX_DSP48_mult
+R1
+R2
+!i10b 1
+!s100 MYGTjKOk7P2gKA1_ES1hI0
+I3NPEkSze=M8nK;Od0al021
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 602
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_mult
+vEFX_DSP48_mult_mode
+R1
+R2
+!i10b 1
+!s100 m>DDO>R^Zd21JR4G59cb61
+IR6=XRh]5o979K39Ge;Fd80
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 574
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_mult_mode
+vEFX_DSP48_p_extender
+R1
+R2
+!i10b 1
+!s100 P9Z4Kooli3:3BaY8;0^h<3
+I2AfdF^UE:z5[6;^<[c:zV2
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 623
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_p_extender
+vEFX_DSP48_pipe
+R1
+R2
+!i10b 1
+!s100 NH`P:e8zBe=5<NOIO>c650
+IYJ]X7O:<R6fi8CO0X0:Tc3
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 546
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_pipe
+vEFX_DSP48_shifter
+R1
+R2
+!i10b 1
+!s100 maEf][OSb@XmD??ig>21j3
+ID>;o[69Q0_g>9VEA][oQ:1
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 747
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_shifter
+vEFX_DSP48_shifter_mode
+R1
+R2
+!i10b 1
+!s100 ;O;2Uk5ZINZb7NCS>_T442
+Igf1ImGnkhBMk86c_9?4S60
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 719
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+n@e@f@x_@d@s@p48_shifter_mode
+vf_mulAdd
+R1
+R2
+!i10b 1
+!s100 @PBRO<`1h2LliR]d0FYi91
+Ii6J6L[6lk:kiB63Y6]_GK0
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 840
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+nf_mul@add
+vfeature_map_12_12
+R1
+R2
+!i10b 1
+!s100 b6WG>]aE]lVa]BVOlzBC<2
+ISzhQ8N<><@C[i;b6jQbd?1
+R3
+!s105 feature_map_12_12_v_unit
+S1
+R0
+w1786471661
+8D:/my_code/fpga/yilisi/conv10_10/feature_map_12_12.v
+FD:/my_code/fpga/yilisi/conv10_10/feature_map_12_12.v
+L0 1
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+vfp_fmt_conv
+R1
+R2
+!i10b 1
+!s100 Zk_e=kI9jPBbZVdUCgXY`1
+ISZ_=Wgke93Z[H6I>83^Km0
+R3
+R4
+S1
+R0
+R5
+R6
+R7
+L0 1395
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+vpe
+R1
+R2
+!i10b 1
+!s100 aH5:=Y9J`f>R:anUjTZjG2
+IBP=1YaeV:OS[oS;BC^Lz`1
+R3
+!s105 pe_v_unit
+S1
+R0
+w1786473973
+8D:/my_code/fpga/yilisi/conv10_10/pe.v
+FD:/my_code/fpga/yilisi/conv10_10/pe.v
+L0 1
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+vpe_10_10
+R1
+R2
+!i10b 1
+!s100 SZZnBk]7kaRRUS`A5OB4]0
+IMLz71A<D_9;E=P0V0VERH1
+R3
+!s105 pe_10_10_v_unit
+S1
+R0
+w1786473837
+8D:/my_code/fpga/yilisi/conv10_10/pe_10_10.v
+FD:/my_code/fpga/yilisi/conv10_10/pe_10_10.v
+L0 1
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+vpe_10_10_tb
+R1
+R2
+!i10b 1
+!s100 JF<<nTdR:DgCHBR]MBCz`3
+I`7e1]=8GhUYn8]CYa_ZFl2
+R3
+!s105 pe_10_10_tb_v_unit
+S1
+R0
+w1786472290
+8D:/my_code/fpga/yilisi/conv10_10/pe_10_10_tb.v
+FD:/my_code/fpga/yilisi/conv10_10/pe_10_10_tb.v
+L0 2
+R8
+r1
+!s85 0
+31
+R9
+R10
+R11
+!i113 1
+R12
+R13
+vpe_2_2
+R1
+!s110 1786448641
+!i10b 1
+!s100 i=iYPBjKL5^MX[b<bSU8C2
+I1TOYCd_EFlT_8_1OYHKUZ0
+R3
+!s105 pe_2_2_v_unit
+S1
+R0
+w1786436537
+8D:/my_code/fpga/yilisi/conv10_10/pe_2_2.v
+FD:/my_code/fpga/yilisi/conv10_10/pe_2_2.v
+L0 1
+R8
+r1
+!s85 0
+31
+!s108 1786448641.175000
+!s107 D:/my_code/fpga/yilisi/conv10_10/pe_2_2.v|
+!s90 -reportprogress|300|-work|work|-L|mtiAvm|-L|mtiRnm|-L|mtiOvm|-L|mtiUvm|-L|mtiUPF|-L|infact|D:/my_code/fpga/yilisi/conv10_10/pe_2_2.v|
+!i113 1
+R12
+R13
+vpe_2_2_tb
+R1
+!s110 1786446711
+!i10b 1
+!s100 XWzz_CKWLB_1P6Qaj^JQ03
+IQD<U8O_=:P<KcXG1UC<QE1
+R3
+!s105 pe_2_2_tb_v_unit
+S1
+R0
+w1786446624
+8D:/my_code/fpga/yilisi/conv10_10/pe_2_2_tb.v
+FD:/my_code/fpga/yilisi/conv10_10/pe_2_2_tb.v
+L0 2
+R8
+r1
+!s85 0
+31
+!s108 1786446711.736000
+!s107 D:/my_code/fpga/yilisi/conv10_10/pe_2_2_tb.v|D:/my_code/fpga/yilisi/conv10_10/pe_2_2.v|D:/my_code/fpga/yilisi/conv10_10/pe.v|D:/my_code/fpga/yilisi/conv/yilisi_sim_models/efx_dsp48.v|
+R11
+!i113 1
+R12
+R13
