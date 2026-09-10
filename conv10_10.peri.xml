@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<efxpt:design_db name="conv10_10" device_def="Ti60F225" version="2026.1.132" db_version="20261009" last_change_date="Tue Aug 25 22:42:36 2026" xmlns:efxpt="http://www.efinixinc.com/peri_design_db" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.efinixinc.com/peri_design_db peri_design_db.xsd ">
+<efxpt:design_db name="conv10_10" device_def="Ti60F225" version="2026.1.132" db_version="20261009" last_change_date="Thu Sep 10 16:38:05 2026" xmlns:efxpt="http://www.efinixinc.com/peri_design_db" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.efinixinc.com/peri_design_db peri_design_db.xsd ">
     <efxpt:device_info>
         <efxpt:iobank_info>
             <efxpt:iobank name="1A" iostd="1.8 V LVCMOS" is_dyn_voltage="false" mode_sel_name="1A_MODE_SEL"/>
@@ -91,17 +91,16 @@
         <efxpt:global_unused_config state="input with weak pullup"/>
     </efxpt:gpio_info>
     <efxpt:pll_info>
-        <efxpt:pll name="pll_inst1" pll_def="PLL_TL0" ref_clock_name="" ref_clock_freq="24.0000" multiplier="4" pre_divider="1" post_divider="4" reset_name="" locked_name="pll_inst1_LOCKED" is_ipfrz="false" is_bypass_lock="true">
-            <efxpt:adv_prop ref_clock_mode="external" ref_clock1_name="" ext_ref_clock_id="4" clksel_name="" feedback_clock_name="pll_inst1_CLKOUT0" feedback_mode="local"/>
+        <efxpt:pll name="pll_inst1" pll_def="PLL_TL0" ref_clock_name="" ref_clock_freq="24.0000" multiplier="4" pre_divider="1" post_divider="2" reset_name="" locked_name="sys_pll_lock" is_ipfrz="false" is_bypass_lock="true">
+            <efxpt:adv_prop ref_clock_mode="external" ref_clock1_name="" ext_ref_clock_id="4" clksel_name="" feedback_clock_name="sys_clk_96_m" feedback_mode="local"/>
             <efxpt:gen_pin>
                 <efxpt:pin name="" type_name="SHIFT" is_bus="true"/>
                 <efxpt:pin name="" type_name="SHIFT_SEL" is_bus="true"/>
                 <efxpt:pin name="" type_name="SHIFT_ENA" is_bus="false"/>
                 <efxpt:pin name="" type_name="DESKEWED" is_bus="false"/>
             </efxpt:gen_pin>
-            <efxpt:comp_output_clock name="pll_inst1_CLKOUT0" number="0" out_divider="12" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk"/>
-            <efxpt:comp_output_clock name="pll_inst1_CLKOUT1" number="1" out_divider="6" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk"/>
-            <efxpt:comp_output_clock name="pll_inst1_CLKOUT2" number="2" out_divider="125" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk"/>
+            <efxpt:comp_output_clock name="sys_clk_96_m" number="0" out_divider="28" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk"/>
+            <efxpt:comp_output_clock name="sys_clk_192m" number="1" out_divider="14" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk"/>
             <efxpt:comp_prop/>
         </efxpt:pll>
     </efxpt:pll_info>

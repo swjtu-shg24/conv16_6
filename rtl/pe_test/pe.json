@@ -1,0 +1,17 @@
+{ signal: [
+  { name: "clk",         wave: "p.........................................." },
+  { name: "conv_en",     wave: "01.........................................." },
+  { name: "loard_a_in_opt",        wave: "010........................."},
+  { name: "a_in_data" ,   wave: "020.............", data:["data1",""]},
+  { name: "buttom_in",   wave: "0...10.10.........................."},
+  { name: "buttom_a_in_data" ,   wave: "0...20.20.............", data:["data4","data7"]},
+  { name: "right_in",    wave: "0.1.01.01.0........................"},
+  { name: "right_a_in_data" ,   wave: "0.230450670........", data:["data2","data3","data5","data6","data8","data9"]},
+  { name: "ce",          wave: "0.1........0..." },
+  { name: "input_reg_a", wave: "0.2345678920........" ,data:["data1","data2","data3","data4","data5","data6","data7","data8","data9"]},
+  { name: "top_a_out" ,  wave: "0."},
+  { name: "left_a_out" ,  wave: "0.230450450..",data:["data1","data2","data4","data5","data7","data8",]},
+  { name: "top_a_out" ,  wave:  "0...20.20...",data:["data1","data4",]},
+
+  { name: "Acknowledge", wave: "1.....01." }
+]}

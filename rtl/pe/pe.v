@@ -1,5 +1,6 @@
 module pe #(
-    parameter KERNEL_SIZE = 3
+    parameter KERNEL_WIDTH = 3,
+    parameter KERNEL_HEIGHT= 3,
 )(
     input        clk,
     input        rstn,
@@ -14,7 +15,7 @@ module pe #(
     output [17:0] left_a_out,
     output [17:0] top_a_out,
 
-    output [35:0] PE_output,
+    output [47:0] PE_output,
     output        output_en
 );
             //reg
@@ -30,38 +31,38 @@ reg         ce_reg1;
 reg         ce_reg2;
 reg         input_en_reg1;
 reg         input_en_reg2;
-reg         op_reg;
+reg  [4:0]  op_reg;
             //wire
 wire         right_a_in_opt;
 wire [47:0]  dsp_o;//DSP48 48-bit 主输出
             //assign
-assign       right_a_in_opt=(op_reg==1'b1)&&(!load_a_in_opt)&&(!buttom_a_in_opt);
+assign       right_a_in_opt=(op_reg[0]==1'b1)&&(!load_a_in_opt)&&(!buttom_a_in_opt);
 assign       left_a_out=(right_a_in_opt==1'b1)?input_reg_a[0]:18'd0;
 assign       top_a_out=(buttom_a_in_opt==1'b1)?input_reg_a[2]:18'd0;
 assign       output_en=input_en_reg2;
             //always
 //right_a_in_opt
 always @(posedge clk ) begin
-    load_a_in_opt_reg1<=load_a_in_opt&&op_reg;
+    load_a_in_opt_reg1<=load_a_in_opt&&op_reg[0];
     load_a_in_opt_reg2<=load_a_in_opt_reg1;
     load_a_in_opt_reg3<=load_a_in_opt_reg2;
     load_a_in_opt_reg4<=load_a_in_opt_reg3;
     load_a_in_opt_reg5<=load_a_in_opt_reg4;
     buttom_a_in_opt<=load_a_in_opt_reg2||load_a_in_opt_reg5;
 end
-//input_en_reg;op_reg
+//input_en_reg;op_reg[0]
 
 always @(posedge clk ) begin
     input_en_reg1<=input_en;
     input_en_reg2<=input_en_reg1;
-    op_reg<=op;
+    op_reg<={op_reg[3:0],op};
 end
 
 //input_reg_a[0];
 always @(posedge clk ) begin
     if (!rstn) begin
         input_reg_a[0]<=18'd0;
-    end else if (op_reg) begin
+    end else if (op_reg[0]) begin
         if(load_a_in_opt)begin
             input_reg_a[0]<=load_a_in;
         end else if(buttom_a_in_opt)begin
@@ -118,9 +119,9 @@ EFX_DSP48 #(
     .CE_POLARITY (1'b1),      // CE 高有效
     .RST_POLARITY(1'b1)       // RST 高有效
 ) u_dsp (
-    .A          ({1'b0,input_reg_a[0]}),          // 19-bit 乘数
+    .A          ({input_reg_a[0][17],input_reg_a[0]}),          // 19-bit 乘数
     .B          (input_reg_b),          // 18-bit 乘数
-    .C          (18'd0),      // C[15:0] 是移位量，0=不移位
+    .C          (18'd0),     
     .OP         (2'b00),      // 00=加（01=减）
     .SHIFT_ENA  (1'b0),       // 不锁存移位量
     .CLK        (clk),
@@ -131,8 +132,20 @@ EFX_DSP48 #(
     .CASCIN     (48'd0),
     .CASCOUT    ()         // 不级联,悬空(VDB-9045要求CASCOUT只能悬空或接CASCIN)
 );
-assign PE_output=dsp_o[35:0];//取48位主输出低36位
 
+reg signed [47:0] acc;
+wire signed [48:0] sum ={acc[47],acc}+{dsp_o[47],dsp_o};
+wire acc_en=op_reg[2]&&!load_a_in_opt_reg2;
+always @(posedge clk ) begin
+    if (!rstn) begin
+        acc<=48'sd0;    
+    end else if (acc_en) begin
+        acc<=sum[47:0];
+    end else 
+        acc<=dsp_o;
+end
+
+assign PE_output=acc;
 
 
 

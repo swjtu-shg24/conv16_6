@@ -11,7 +11,7 @@ module pe_16_6#(
     input        load_a_in_opt, 
     input        input_en,
 
-    output [35:0] PE_output[0:95],
+    output [47:0] PE_output[0:95],
     output        out_type,
     output        output_en 
 );
@@ -22,7 +22,7 @@ reg         input_en_reg1;
 reg         input_en_reg2;
 reg         input_en_reg3;
 
-reg  [2:0]  op_reg ;
+reg  [3:0]  op_reg ;
 
 
             //wire
@@ -32,11 +32,11 @@ wire [17:0] left_a_out [0:95];
 wire [17:0] top_a_out [0:95];
             //alwys
 always @(posedge clk ) begin
-    op_reg<={op_reg[1:0],op};
+    op_reg<={op_reg[2:0],op};
 end
             //assign
-assign output_en=input_en_reg2;
-assign out_type=op_reg[2];
+assign output_en=input_en_reg3;
+assign out_type=op_reg[3];
 //right_a_in
 generate
     for(genvar i=0;i<96;i++)begin

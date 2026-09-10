@@ -6,13 +6,11 @@
         <efx:timing_model name="I3"/>
     </efx:device_info>
     <efx:design_info def_veri_version="sv_09" def_vhdl_version="vhdl_2008" unified_flow="false" partition_interface_allowed_off_perimeter="true">
-        <efx:top_module name="pe_10_10_conv_top"/>
-        <efx:design_file name="feature_map_12_12.v" version="default" library="default"/>
-        <efx:design_file name="pe_10_10.v" version="default" library="default"/>
-        <efx:design_file name="pe.v" version="default" library="default"/>
-        <efx:design_file name="pe_10_10_conv_top.v" version="default" library="default"/>
-        <efx:design_file name="generate_resetn.v" version="default" library="default"/>
-        <efx:top_vhdl_arch name="pe_10_10_conv_top"/>
+        <efx:top_module name="pe_test_top"/>
+        <efx:design_file name="rtl/sys/generate_resetn.v" version="default" library="default"/>
+        <efx:design_file name="rtl/pe_test/pe_test.v" version="default" library="default"/>
+        <efx:design_file name="rtl/pe_test_top.v" version="default" library="default"/>
+        <efx:top_vhdl_arch name="pe_test_top"/>
         <efx:msg_config name=""/>
         <efx:partition_definitions name=""/>
         <efx:partition_interface_assignments name=""/>

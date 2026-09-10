@@ -17,7 +17,7 @@ module pe_16_6_tb;
   reg  start;
   wire load_a_in_opt;
   wire input_en;
-  wire [35:0] PE_output[0:95];
+  wire [47:0] PE_output[0:95];
   wire output_en;
   wire out_type;
 
@@ -59,7 +59,7 @@ always #10  clk = ! clk ;
 //完成一次直接相乘： op拉低,需要同时加载计算数据(放在左上的16*6区域)
 //数据可以加载与start位同时变换
 initial begin
-  clk=1'b0;rstn=1'b0;op=0;
+  clk=1'b0;rstn=1'b0;op=1;
   for (integer i=0; i<96;i++)begin
     load_b_in[i]=18'd1;
   end
