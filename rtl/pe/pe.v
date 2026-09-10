@@ -1,9 +1,11 @@
-module pe #(
-    parameter KERNEL_WIDTH = 3,
-    parameter KERNEL_HEIGHT= 3,
-)(
+module pe 
+(
     input        clk,
     input        rstn,
+
+    input   [2:0]     kernel_width,  
+    input   [2:0]     kernel_height,
+
     input        op,//0为pe_output=b_in*a_in;1为卷积数据复用模式
     input [17:0] right_a_in,
     input [17:0] buttom_a_in,//a为数据
@@ -21,11 +23,7 @@ module pe #(
             //reg
 reg [17:0]  input_reg_a[0:2];
 reg [17:0]  input_reg_b;
-reg         load_a_in_opt_reg1; 
-reg         load_a_in_opt_reg2;
-reg         load_a_in_opt_reg3;
-reg         load_a_in_opt_reg4;
-reg         load_a_in_opt_reg5;
+reg  [23:0]  load_a_in_opt_reg;
 reg         buttom_a_in_opt;
 reg         ce_reg1;
 reg         ce_reg2;
@@ -40,17 +38,30 @@ assign       right_a_in_opt=(op_reg[0]==1'b1)&&(!load_a_in_opt)&&(!buttom_a_in_o
 assign       left_a_out=(right_a_in_opt==1'b1)?input_reg_a[0]:18'd0;
 assign       top_a_out=(buttom_a_in_opt==1'b1)?input_reg_a[2]:18'd0;
 assign       output_en=input_en_reg2;
+
+wire   [4:0] layer_en;
+assign  layer_en[0]=kernel_height>=3'd1;
+assign  layer_en[1]=kernel_height>=3'd2;
+assign  layer_en[2]=kernel_height>=3'd5;
+assign  layer_en[3]=kernel_height>=3'd5;
+assign  layer_en[4]=kernel_height>=3'd5;
             //always
 //right_a_in_opt
+
+
 always @(posedge clk ) begin
-    load_a_in_opt_reg1<=load_a_in_opt&&op_reg[0];
-    load_a_in_opt_reg2<=load_a_in_opt_reg1;
-    load_a_in_opt_reg3<=load_a_in_opt_reg2;
-    load_a_in_opt_reg4<=load_a_in_opt_reg3;
-    load_a_in_opt_reg5<=load_a_in_opt_reg4;
-    buttom_a_in_opt<=load_a_in_opt_reg2||load_a_in_opt_reg5;
+     load_a_in_opt_reg<=  {load_a_in_opt_reg[22:0],load_a_in_opt&&op_reg[0]};
 end
-//input_en_reg;op_reg[0]
+
+
+always @(posedge clk ) begin
+    buttom_a_in_opt<= (kernel_width>=3'd2)&&((layer_en[0])&&load_a_in_opt_reg[kernel_width-3'd2])||
+                                            ((layer_en[1])&&load_a_in_opt_reg[2*kernel_width-3'd2])||
+                                            ((layer_en[2])&&load_a_in_opt_reg[3*kernel_width-3'd2])||
+                                            ((layer_en[3])&&load_a_in_opt_reg[4*kernel_width-3'd2])||
+                                            ((layer_en[4])&&load_a_in_opt_reg[5*kernel_width-3'd2]);
+end
+//input_en_reg;op_reg[0]    
 
 always @(posedge clk ) begin
     input_en_reg1<=input_en;
@@ -135,7 +146,7 @@ EFX_DSP48 #(
 
 reg signed [47:0] acc;
 wire signed [48:0] sum ={acc[47],acc}+{dsp_o[47],dsp_o};
-wire acc_en=op_reg[2]&&!load_a_in_opt_reg2;
+wire acc_en=op_reg[2]&&!load_a_in_opt_reg[1];
 always @(posedge clk ) begin
     if (!rstn) begin
         acc<=48'sd0;    

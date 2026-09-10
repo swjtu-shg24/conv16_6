@@ -65,9 +65,7 @@ always @(posedge clk ) begin
 end
 generate
   for (genvar i = 0; i < 96; i++) begin : pe_gen
-    pe #(
-      .KERNEL_SIZE(KERNEL_SIZE)
-    ) pe_inst (
+    pe pe_inst (
       .clk             (clk),
       .rstn            (rstn),
       .op              (op),
@@ -75,7 +73,10 @@ generate
       .buttom_a_in     (buttom_a_in[i]),
       .load_a_in      (load_a_in[i]),
       .load_b_in      (load_b_in[i]),
-      .load_a_in_opt  (load_a_in_opt),   
+      .load_a_in_opt  (load_a_in_opt),  
+      .kernel_width    (3'd3),  
+      .kernel_height   (3'd3),
+       
       .input_en        (input_en),
       .left_a_out      (left_a_out[i]),
       .top_a_out       (top_a_out[i]),

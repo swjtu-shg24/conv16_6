@@ -4,6 +4,8 @@ module feature_map_18_8(
     input  wire  [17:0]  wdata    [0:143],
     input  wire          wdata_en,
     input  wire          op,
+    input   [2:0]     kernel_width,  
+    input   [2:0]     kernel_height,  
     input  wire          start,   //脉冲
     
     output wire  [17:0]  right_a_in_last_line[0:5],

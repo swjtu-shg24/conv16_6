@@ -1,9 +1,6 @@
 `timescale 1ns/1ps
 module pe_16_6_tb;
 
-  // Parameters
-  localparam  KERNEL_SIZE = 3;
-
   //Ports
   reg clk;
   reg rstn;
@@ -34,10 +31,7 @@ module pe_16_6_tb;
     .load_a_in_opt(load_a_in_opt),
     .input_en(input_en)
   );
-  pe_16_6 # (
-    .KERNEL_SIZE(KERNEL_SIZE)
-  )
-  pe_16_6_inst (
+  pe_16_6 pe_16_6_inst (
     .clk(clk),
     .rstn(rstn),
     .op(op),
