@@ -275,7 +275,7 @@ initial begin
     @(posedge clk);
   end
 
-  $finish;
+
 end
 
 endmodule
