@@ -147,13 +147,16 @@ EFX_DSP48 #(
 reg signed [47:0] acc;
 wire signed [48:0] sum ={acc[47],acc}+{dsp_o[47],dsp_o};
 wire acc_en=op_reg[2]&&!load_a_in_opt_reg[1];
+
 always @(posedge clk ) begin
     if (!rstn) begin
-        acc<=48'sd0;    
-    end else if (acc_en) begin
-        acc<=sum[47:0];
-    end else 
-        acc<=dsp_o;
+        acc<=48'sd0; 
+    end else if (ce_reg2) begin   //acc_en没有判断该时钟沿是否进行一次有效乘积，导致acc在卷积闲置时也会继续重复累加
+        if (acc_en) begin
+            acc<=sum[47:0];
+        end else 
+            acc<=dsp_o;
+    end
 end
 
 assign PE_output=acc;
