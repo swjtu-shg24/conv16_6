@@ -104,7 +104,7 @@ assign led=result_data[0][0]|result_data[1][0];
   wire result_valid;
   wire result_ready = 1'b1; // always ready to accept results 
 
-  reg [17:0] saved_data [0:95];
+  reg [47:0] saved_data [0:95];
   reg done;
 
   integer i;
@@ -134,8 +134,10 @@ assign led=result_data[0][0]|result_data[1][0];
           kernel_height <= 3'd3;
           start <= 1'b1;
         end
-        S_SEND:
-          start <= 1'b0;
+        S_SEND:begin
+          if (start && start_ready)
+            start <= 1'b0;
+        end
         S_RECEIVE: begin
           if (result_valid && result_ready) begin
             for (i=0;i<96;i=i+1) saved_data[i] <= result_data[i];
@@ -153,6 +155,7 @@ assign led=result_data[0][0]|result_data[1][0];
   end
 
   always_comb begin : state_transition
+    next_state = state;
     case (state) 
       S_PREPARE: begin
         next_state = S_SEND;
