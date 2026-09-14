@@ -7,12 +7,16 @@ module conv16_6_core (
     input  wire        clk,
     input  wire        rstn,
     input  wire        start,
+    input  wire        op,
+
     output wire        start_ready,
     output wire        busy,
+
     input  wire [2:0]  kernel_height,
     input  wire [2:0]  kernel_width,
     input  wire [17:0] tile_data [0:143],
     input  wire [17:0] kernel_data [0:8],
+    
     output reg  [47:0] result_data [0:95],
     output reg         result_valid,
     input  wire        result_ready
@@ -48,37 +52,41 @@ module conv16_6_core (
     end
 
     feature_map_param #(
-        .ARRAY_ROWS(6), .ARRAY_COLS(16), .KMAX_H(3), .KMAX_W(3)
+        .ARRAY_ROWS                 (6      ), 
+        .ARRAY_COLS                 (16     ), 
+        .KMAX_H                     (3      ), 
+        .KMAX_W                     (3      )
     ) u_feature_map (
-        .clk(clk), 
-        .rstn(rstn), 
-        .wdata(tile_reg),
-        .wdata_en(core_start), 
-        .start(core_start), .op(1'b1),
-        .kernel_width(kw_reg), 
-        .kernel_height(kh_reg),
-        .right_a_in_last_line(right_pixels),
-        .buttom_a_in_last_line(bottom_pixels),
-        .load_a_in(load_pixels), 
-        .load_a_in_opt(load_opt), 
-        .input_en(input_en)
+        .clk                        (clk            ), 
+        .rstn                       (rstn           ), 
+        .wdata                      (tile_reg       ),
+        .wdata_en                   (core_start     ), 
+        .start                      (core_start     ), 
+        .op                         (op             ),
+        .kernel_width               (kw_reg         ), 
+        .kernel_height              (kh_reg         ),
+        .right_a_in_last_line       (right_pixels   ),
+        .buttom_a_in_last_line      (bottom_pixels  ),
+        .load_a_in                  (load_pixels    ), 
+        .load_a_in_opt              (load_opt       ), 
+        .input_en                   (input_en       )
     );
 
     pe_16_6 u_array (
-        .clk(clk), 
-        .rstn(rstn), 
-        .op(1'b1),
-        .kernel_width(kw_reg), 
-        .kernel_height(kh_reg),
-        .right_a_in_last_line(right_pixels),
-        .buttom_a_in_last_line(bottom_pixels),
-        .load_a_in(load_pixels),    
-        .load_b_in(weights),
-        .load_a_in_opt(load_opt), 
-        .input_en(input_en),
-        .PE_output(pe_result), 
-        .output_en(output_en), 
-        .out_type()
+        .clk                        (clk            ), 
+        .rstn                       (rstn           ), 
+        .op                         (op             ),
+        .kernel_width               (kw_reg         ), 
+        .kernel_height              (kh_reg         ),
+        .right_a_in_last_line       (right_pixels   ),
+        .buttom_a_in_last_line      (bottom_pixels  ),
+        .load_a_in                  (load_pixels    ),    
+        .load_b_in                  (weights        ),
+        .load_a_in_opt              (load_opt       ), 
+        .input_en                   (input_en       ),
+        .PE_output                  (pe_result      ), 
+        .output_en                  (output_en      ), 
+        .out_type                   (               )
     );
 
     integer i;
