@@ -42,6 +42,30 @@ module mb2_tb;
         .dbg_r(tbr), .dbg_c(tbc), .dbg_d(dbg_d), .done(done)
     );
 
+    //==================================================================
+    // 数据流日志：跟 PE55（像素 (5,5)）走一遍 tile(0,0)，只在 lvl0/ir0/ic0 触发
+    //   1 窗口装载 -> 2 深度卷积捕获 -> 3 点卷积起 -> 4 量化 -> 5 写回
+    //==================================================================
+    always @(posedge clk) begin
+        if ((u_top.lvl == 2'd0) && (u_top.ir == 6'd0) && (u_top.ic == 6'd0)) begin
+            if (u_top.fm_wen)
+                $display("[1 WINDOW ] t=%0t ch=%0d fm_la55=%0d",
+                         $time, u_top.win_ch, $signed(u_top.fm_la[55]));
+            if (u_top.dw_ph && (u_top.dcy == 5'd11))
+                $display("[2 DW-CAP ] t=%0t ch=%0d peo55=%0d",
+                         $time, u_top.c_cur, $signed(u_top.peo[55]));
+            if (u_top.s3v && (u_top.s3c == 6'd0))
+                $display("[3 PW-START] t=%0t oc=%0d peo55=%0d",
+                         $time, u_top.s3o, $signed(u_top.peo[55]));
+            if (u_top.s4v)
+                $display("[4 QUANT  ] t=%0t oc=%0d c=%0d pacc55=%0d",
+                         $time, u_top.s4o, u_top.s4c, $signed(u_top.pacc[55]));
+            if (u_top.ex_wr && (u_top.we_k == 9'd0))
+                $display("[5 WR-BACK] t=%0t dst=(%0d,%0d) blk00=%0d",
+                         $time, u_top.dst_r, u_top.dst_c, u_top.blk[0][0]);
+        end
+    end
+
     //------------------------------------------------------------------
     // DDR 模型：128bit/beat，RGB565 线性递增
     //------------------------------------------------------------------
