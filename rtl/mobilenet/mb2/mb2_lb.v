@@ -15,7 +15,9 @@ module mb2_lb #(
     parameter integer W  = 80,
     parameter integer PH = 80,
     parameter integer CH = 16,
-    parameter integer CW = 4
+    parameter integer CW = 4,
+    // DEPTH=0 -> 全平面；否则只留 DEPTH 行带（行号取模），由调度保证被读的行还没被覆盖
+    parameter integer DEPTH = 0
 )(
     input  wire              clk,
     input  wire              rstn,
@@ -35,17 +37,26 @@ module mb2_lb #(
     output wire [CH*8-1:0]   pr_d
 );
 
-    reg [CH*8-1:0] mem [0:PH-1][0:W-1];
+    localparam integer ROWS = (DEPTH == 0) ? PH : DEPTH;
+
+    reg [CH*8-1:0] mem [0:ROWS-1][0:W-1];
+
+    function integer prow;
+        input integer r;
+        begin
+            prow = (DEPTH == 0) ? r : (r % DEPTH);
+        end
+    endfunction
 
     integer i, j;
     initial begin
-        for (i = 0; i < PH; i = i + 1)
+        for (i = 0; i < ROWS; i = i + 1)
             for (j = 0; j < W; j = j + 1)
                 mem[i][j] = {(CH*8){1'b0}};
     end
 
     always @(posedge clk) begin
-        if (wr_en) mem[wr_r][wr_c] <= wr_d;
+        if (wr_en) mem[prow(wr_r)][wr_c] <= wr_d;
     end
 
     // 反射（-1->1, N->N-2）：用显式有符号算术算好 12 个行/列地址，
@@ -70,11 +81,11 @@ module mb2_lb #(
     generate
         for (genvar R = 0; R < 12; R = R + 1) begin : g_r
             for (genvar C = 0; C < 12; C = C + 1) begin : g_c
-                assign wdata[R*12 + C] = mem[rr[R]][cc[C]][rd_ch*8 +: 8];
+                assign wdata[R*12 + C] = mem[prow(rr[R])][cc[C]][rd_ch*8 +: 8];
             end
         end
     endgenerate
 
-    assign pr_d = mem[pr_r][pr_c];
+    assign pr_d = mem[prow(pr_r)][pr_c];
 
 endmodule

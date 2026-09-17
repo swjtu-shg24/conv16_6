@@ -257,16 +257,9 @@ module mb2_tb;
             end
         $display("  LB0 mismatches = %0d", e0);
 
-        for (yy = 0; yy < P0H; yy = yy + 1)
-        for (xx = 0; xx < P0W; xx = xx + 1)
-        for (c2 = 0; c2 < 16; c2 = c2 + 1)
-            if (u_top.u_l1o.mem[yy][xx][c2*8 +: 8] !== G1[yy][xx][c2]) begin
-                if (e1 < 3) $display("  L1O (r=%0d,c=%0d,ch=%0d) rtl=%0d exp=%0d",
-                                     yy, xx, c2, u_top.u_l1o.mem[yy][xx][c2*8 +: 8], G1[yy][xx][c2]);
-                e1 = e1 + 1;
-            end
-        $display("  L1O mismatches = %0d", e1);
-
+        // 融合版：池化在写回路径里，所以直接看池化后的面
+        //   LB1 = L1 输出池化后 (对应黄金 G2)
+        //   LB2 = L2 输出池化后 (对应黄金 G4)
         for (yy = 0; yy < P2H; yy = yy + 1)
         for (xx = 0; xx < P2W; xx = xx + 1)
         for (c2 = 0; c2 < 16; c2 = c2 + 1)
@@ -275,17 +268,7 @@ module mb2_tb;
                                      yy, xx, c2, u_top.u_lb1.mem[yy][xx][c2*8 +: 8], G2[yy][xx][c2]);
                 e2 = e2 + 1;
             end
-        $display("  LB1 mismatches = %0d", e2);
-
-        for (yy = 0; yy < P2H; yy = yy + 1)
-        for (xx = 0; xx < P2W; xx = xx + 1)
-        for (c2 = 0; c2 < 32; c2 = c2 + 1)
-            if (u_top.u_l2o.mem[yy][xx][c2*8 +: 8] !== G3[yy][xx][c2]) begin
-                if (e3 < 3) $display("  L2O (r=%0d,c=%0d,ch=%0d) rtl=%0d exp=%0d",
-                                     yy, xx, c2, u_top.u_l2o.mem[yy][xx][c2*8 +: 8], G3[yy][xx][c2]);
-                e3 = e3 + 1;
-            end
-        $display("  L2O mismatches = %0d", e3);
+        $display("  LB1 (L1 out, pooled) mismatches = %0d", e2);
 
         for (yy = 0; yy < P3H; yy = yy + 1)
         for (xx = 0; xx < P3W; xx = xx + 1)
