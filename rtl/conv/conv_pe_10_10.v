@@ -1,20 +1,20 @@
-module pe_10_10#(
+module conv_pe_10_10#(
    parameter  KERNEL_SIZE=3
 )(
     input        clk,
     input        rstn,
-    input        op,//0为pe_output=b_in*a_in;1为卷积数据复用模式
-    input [17:0] right_a_in_last_line[0:9],
-    input [17:0] buttom_a_in_last_line[0:9],//a为数据
-    input [17:0] load_a_in[0:99],
-    input [17:0] load_b_in[0:99],       //b为参数
+    input        op,//0为pe_output=b_in*a_in;1为卷积数据复用模�?
+    input [7:0] right_a_in_last_line[0:9],
+    input [7:0] buttom_a_in_last_line[0:9],//a为数�?
+    input [7:0] load_a_in[0:99],
+    input [7:0] load_b_in[0:99],       //b为参�?
     input        load_a_in_opt, 
     input        input_en,
 
     input  wire  [2:0]   kernel_width,
     input  wire  [2:0]   kernel_height,
 
-    output [35:0] PE_output[0:99],
+    output [47:0] PE_output[0:99],
     output        out_type,
     output        output_en 
 );
@@ -29,10 +29,10 @@ reg         input_en_reg3;
 reg  [2:0]  op_reg ;
 
             //wire
-wire [17:0] right_a_in[0:99];
-wire [17:0] buttom_a_in[0:99];
-wire [17:0] left_a_out [0:99];
-wire [17:0] top_a_out [0:99];
+wire [7:0] right_a_in[0:99];
+wire [7:0] buttom_a_in[0:99];
+wire [7:0] left_a_out [0:99];
+wire [7:0] top_a_out [0:99];
             //alwys
 always @(posedge clk ) begin
     op_reg<={op_reg[1:0],op};
@@ -68,7 +68,7 @@ always @(posedge clk ) begin
 end
 generate
   for (genvar i = 0; i < 100; i++) begin : pe_gen
-    pe pe_inst (
+    conv_pe pe_inst (
       .clk             (clk),
       .rstn            (rstn),
       .op              (op),

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<efx:project name="conv10_10" description="BRAM shape calibration" sw_version="2026.1.132" xmlns:efx="http://www.efinixinc.com/enf_proj" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.efinixinc.com/enf_proj enf_proj.xsd">
+    <efx:device_info>
+        <efx:family name="Titanium"/>
+        <efx:device name="Ti60F225"/>
+        <efx:timing_model name="I3"/>
+    </efx:device_info>
+    <efx:design_info def_veri_version="sv_09" def_vhdl_version="vhdl_2008" unified_flow="false" partition_interface_allowed_off_perimeter="true">
+        <efx:top_module name="memtest_ip"/>
+        <efx:design_file name="rtl/conv/memtest/memtest_ip.v" version="default" library="default"/><efx:design_file name="ip/bram_10kb/bram_10kb.v" version="default" library="default"/>
+        <efx:top_vhdl_arch name="memtest_ip"/>
+        <efx:msg_config name=""/>
+        <efx:partition_definitions name=""/>
+        <efx:partition_interface_assignments name=""/>
+    </efx:design_info>
+    <efx:interface_info>
+        <efx:default_peri_file name="conv10_10.peri.xml"/>
+        <efx:peri_file name="conv10_10.peri.xml"/>
+    </efx:interface_info>
+    <efx:constraint_info>
+        <efx:sdc_file name=""/>
+        <efx:inter_file name=""/>
+    </efx:constraint_info>
+    <efx:sim_info/>
+    <efx:misc_info/>
+    <efx:ooc_info/>
+    <efx:ip_info/>
+    <efx:synthesis tool_name="efx_map">
+        <efx:param name="work_dir" value="work_memtest" value_type="e_string"/>
+        <efx:param name="write_efx_verilog" value="on" value_type="e_bool"/>
+        <efx:param name="max_ram" value="-1" value_type="e_integer"/>
+        <efx:param name="max_mult" value="-1" value_type="e_integer"/>
+        <efx:param name="max-bit-blast-mem-size" value="10240" value_type="e_integer"/>
+        <efx:param name="mode" value="speed" value_type="e_option"/>
+        <efx:param name="retiming" value="1" value_type="e_option"/>
+        <efx:param name="seq_opt" value="1" value_type="e_option"/>
+        <efx:param name="use-logic-for-small-mem" value="64" value_type="e_integer"/>
+        <efx:param name="use-logic-for-small-rom" value="64" value_type="e_integer"/>
+        <efx:param name="ram-decomp-mode" value="0" value_type="e_option"/>
+        <efx:param name="max_threads" value="-1" value_type="e_integer"/>
+    </efx:synthesis>
+    <efx:place_and_route tool_name="efx_pnr">
+        <efx:param name="work_dir" value="work_memtest_pnr" value_type="e_string"/>
+        <efx:param name="seed" value="1" value_type="e_integer"/>
+    </efx:place_and_route>
+    <efx:bitstream_generation tool_name="efx_pgm">
+        <efx:param name="mode" value="active" value_type="e_string"/>
+    </efx:bitstream_generation>
+    <efx:debugger>
+        <efx:param name="work_dir" value="work_memtest_dbg" value_type="e_string"/>
+    </efx:debugger>
+    <efx:security>
+        <efx:param name="enable_bitstream_encrypt" value="off" value_type="e_bool"/>
+    </efx:security>
+</efx:project>
+

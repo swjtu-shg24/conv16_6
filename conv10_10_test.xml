@@ -6,26 +6,10 @@
         <efx:timing_model name="I3"/>
     </efx:device_info>
     <efx:design_info def_veri_version="sv_09" def_vhdl_version="vhdl_2008" unified_flow="false" partition_interface_allowed_off_perimeter="true">
-        <efx:top_module name="conv_board_top"/>
-        <efx:design_file name="rtl/sys/generate_resetn.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe_16_6/pe_16_6.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe_16_6/pe_16_6_conv_top.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe_16_6/feature_map_param.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe/pe.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/board/conv_board_top.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_band12/conv_band12.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_cmp4_tree/conv_cmp4_tree.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_in_dma/conv_in_dma.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_l1/conv_l1.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_mem_unit/conv_mem_unit.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_plane/conv_plane.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_pool_arr/conv_pool_arr.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_sched/conv_sched.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_top.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_win_load/conv_win_load.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe10_10/pe_10_10.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe10_10/feature_map_12_12.v" version="default" library="default"/>
-        <efx:top_vhdl_arch name="conv_board_top"/>
+        <efx:top_module name="conv_test"/>
+        <efx:design_file name="conv_test.v" version="default" library="default"/>
+        <efx:design_file name="ip/bram_10kb/bram_10kb.v" version="default" library="default"/>
+        <efx:top_vhdl_arch name="conv_test"/>
         <efx:msg_config name=""/>
         <efx:partition_definitions name=""/>
         <efx:partition_interface_assignments name=""/>
@@ -35,7 +19,6 @@
         <efx:peri_file name="conv10_10.peri.xml"/>
     </efx:interface_info>
     <efx:constraint_info>
-        <efx:sdc_file name="pe_10_10_conv.sdc.sdc"/>
         <efx:inter_file name=""/>
     </efx:constraint_info>
     <efx:sim_info/>

@@ -1,51 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<efx:project name="conv10_10" description="" sw_version="2026.1.132" xmlns:efx="http://www.efinixinc.com/enf_proj" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.efinixinc.com/enf_proj enf_proj.xsd">
+<efx:project name="conv" description="" sw_version="2026.1.132" xmlns:efx="http://www.efinixinc.com/enf_proj" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.efinixinc.com/enf_proj enf_proj.xsd">
     <efx:device_info>
         <efx:family name="Titanium"/>
         <efx:device name="Ti60F225"/>
-        <efx:timing_model name="I3"/>
+        <efx:timing_model name="C4"/>
     </efx:device_info>
-    <efx:design_info def_veri_version="sv_09" def_vhdl_version="vhdl_2008" unified_flow="false" partition_interface_allowed_off_perimeter="true">
-        <efx:top_module name="conv_board_top"/>
-        <efx:design_file name="rtl/sys/generate_resetn.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe_16_6/pe_16_6.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe_16_6/pe_16_6_conv_top.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe_16_6/feature_map_param.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe/pe.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/board/conv_board_top.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_band12/conv_band12.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_cmp4_tree/conv_cmp4_tree.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_in_dma/conv_in_dma.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_l1/conv_l1.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_mem_unit/conv_mem_unit.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_plane/conv_plane.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_pool_arr/conv_pool_arr.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_sched/conv_sched.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_top.v" version="default" library="default"/>
-        <efx:design_file name="rtl/conv2/conv_win_load/conv_win_load.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe10_10/pe_10_10.v" version="default" library="default"/>
-        <efx:design_file name="rtl/pe10_10/feature_map_12_12.v" version="default" library="default"/>
-        <efx:top_vhdl_arch name="conv_board_top"/>
+    <efx:design_info def_veri_version="sv_23" def_vhdl_version="vhdl_2008" unified_flow="false" partition_interface_allowed_off_perimeter="true">
+        <efx:top_module name="generate_resetn"/><efx:design_file name="rtl/sys/generate_resetn.v" version="default" library="default"/>
+        <efx:top_vhdl_arch name="generate_resetn"/>
         <efx:msg_config name=""/>
         <efx:partition_definitions name=""/>
         <efx:partition_interface_assignments name=""/>
     </efx:design_info>
     <efx:interface_info>
-        <efx:default_peri_file name="conv10_10.peri.xml"/>
-        <efx:peri_file name="conv10_10.peri.xml"/>
+        <efx:default_peri_file name=""/>
     </efx:interface_info>
     <efx:constraint_info>
-        <efx:sdc_file name="pe_10_10_conv.sdc.sdc"/>
         <efx:inter_file name=""/>
     </efx:constraint_info>
     <efx:sim_info/>
     <efx:misc_info/>
     <efx:ooc_info/>
-    <efx:ip_info>
-        <efx:ip instance_name="bram_10kb" path="ip/bram_10kb/settings.json" ooc="false">
-            <efx:ip_src_file name="bram_10kb.v"/>
-        </efx:ip>
-    </efx:ip_info>
+    <efx:ip_info/>
     <efx:synthesis tool_name="efx_map">
         <efx:param name="work_dir" value="work_syn" value_type="e_string"/>
         <efx:param name="write_efx_verilog" value="on" value_type="e_bool"/>
@@ -75,30 +51,25 @@
         <efx:param name="peri-syn-instantiation" value="0" value_type="e_option"/>
         <efx:param name="peri-syn-inference" value="0" value_type="e_option"/>
         <efx:param name="ram-decomp-mode" value="0" value_type="e_option"/>
-        <efx:param name="retiming" value="1" value_type="e_option"/>
+        <efx:param name="retiming" value="2" value_type="e_option"/>
         <efx:param name="seq_opt" value="1" value_type="e_option"/>
         <efx:param name="seq-opt-sync-only" value="0" value_type="e_option"/>
         <efx:param name="use-logic-for-small-mem" value="64" value_type="e_integer"/>
         <efx:param name="use-logic-for-small-rom" value="64" value_type="e_integer"/>
         <efx:param name="max_threads" value="-1" value_type="e_integer"/>
-        <efx:param name="suppress_info_msgs" value="off" value_type="e_bool"/>
-        <efx:param name="suppress_warning_msgs" value="off" value_type="e_bool"/>
         <efx:param name="dsp-input-regs-packing" value="1" value_type="e_option"/>
         <efx:param name="dsp-output-regs-packing" value="1" value_type="e_option"/>
         <efx:param name="dsp-mac-packing" value="1" value_type="e_option"/>
         <efx:param name="insert-carry-skip" value="0" value_type="e_option"/>
         <efx:param name="pack-luts-to-comb4" value="0" value_type="e_option"/>
-        <efx:param name="include" value="ip/bram_10kb" value_type="e_string"/>
     </efx:synthesis>
     <efx:place_and_route tool_name="efx_pnr">
         <efx:param name="work_dir" value="work_pnr" value_type="e_string"/>
-        <efx:param name="verbose" value="off" value_type="e_bool"/>
+        <efx:param name="verbose" value="off" value_type="e_string"/>
         <efx:param name="seed" value="1" value_type="e_integer"/>
         <efx:param name="placer_effort_level" value="2" value_type="e_option"/>
         <efx:param name="max_threads" value="-1" value_type="e_integer"/>
         <efx:param name="print_critical_path" value="10" value_type="e_integer"/>
-        <efx:param name="suppress_info_msgs" value="off" value_type="e_bool"/>
-        <efx:param name="suppress_warning_msgs" value="off" value_type="e_bool"/>
         <efx:param name="beneficial_skew" value="on" value_type="e_option"/>
     </efx:place_and_route>
     <efx:bitstream_generation tool_name="efx_pgm">
@@ -127,9 +98,14 @@
     </efx:debugger>
     <efx:security>
         <efx:param name="randomize_iv_value" value="on" value_type="e_bool"/>
+        <efx:param name="iv_value" value="" value_type="e_string"/>
+        <efx:param name="sc_bitstream_encrypt_use_black_key" value="on" value_type="e_bool"/>
+        <efx:param name="sc_bitstream_encrypt_randomize_iv_value" value="on" value_type="e_bool"/>
+        <efx:param name="sc_bitstream_encrypt_iv_value" value="" value_type="e_string"/>
         <efx:param name="enable_bitstream_encrypt" value="off" value_type="e_bool"/>
         <efx:param name="enable_bitstream_auth" value="off" value_type="e_bool"/>
         <efx:param name="encryption_key_file" value="NONE" value_type="e_string"/>
         <efx:param name="auth_key_file" value="NONE" value_type="e_string"/>
     </efx:security>
 </efx:project>
+
