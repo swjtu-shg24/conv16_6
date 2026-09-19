@@ -263,7 +263,9 @@ module tb_top_full;
 
         // 打印 RTL 在 tile(0,31) 的 dwc[ch][0..4]（手算应为 30/35/40 @p=0）
         $display("  DBG win_req=%0d wl_start=%0d win_vld=%0d (expect 2304 each)", n_req, n_start, n_vld);
-        $display("  DBG wl last: tr=%0d tc=%0d ch=%0d", u_top.u_wl.tr, u_top.u_wl.tc, u_top.u_wl.chr);
+        $display("  DBG wl last: tr=%0d tc_last=%0d ch=%0d slot=%0d",
+                 u_top.u_wl.row_base_q / 10, u_top.u_wl.tc_is_last,
+                 u_top.u_wl.chr_q, u_top.u_wl.slot_q);
         $display("  DBG tile(0,31) dwc: ch0 p0..4 = %0d %0d %0d %0d %0d",
                  cap_dwc[0][0], cap_dwc[0][1], cap_dwc[0][2], cap_dwc[0][3], cap_dwc[0][4]);
         $display("  DBG tile(0,31) dwc: ch1 p0..4 = %0d %0d %0d %0d %0d",

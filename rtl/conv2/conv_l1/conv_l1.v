@@ -199,7 +199,7 @@ module conv_l1 #(
     //     算一次并寄存（这一拍余量很大），回写期间只剩 +640 / +5 的短加法，
     //     原来的 *120、%6、/6 组合链（宽乘法 + 常数除法）整条消失。
     //------------------------------------------------------------------
-    wire [13:0] tile_base = tile_r * 7'd160 + {8'd0, tile_c};   // = ub(oc=0)
+    wire [13:0] tile_base = tile_r * 8'd160 + {8'd0, tile_c};   // = ub(oc=0)
     wire [2:0]  tb_bank   = tile_base % 6;
     wire [12:0] tb_addr   = tile_base / 6;
 
@@ -223,6 +223,7 @@ module conv_l1 #(
             done <= 1'b0;            pool_vld <= 1'b0; pool_oc <= 3'd0;
             p2_wr_en <= 1'b0; p2_wr_bank <= 3'd0; p2_wr_addr <= 13'd0; p2_wr_data <= 40'd0;
             wbank <= 3'd0; waddr <= 13'd0;
+            obank <= 3'd0; oaddr <= 13'd0;
             for (p = 0; p < 100; p = p + 1) begin
                 pe_lb[p] <= 18'd0;
                 pacc[p]  <= 24'sd0;
@@ -246,6 +247,8 @@ module conv_l1 #(
                     busy <= 1'b1;
                     ch   <= 2'd0;
                     oc   <= 3'd0;
+                    obank <= tb_bank;       // 整块基底只在这里算一次
+                    oaddr <= tb_addr;
                     fm_op <= 1'b1;      // 复用模式；不发 start 时阵列是"关闭"状态
                     st   <= S_WREQ;
                 end
@@ -346,15 +349,16 @@ module conv_l1 #(
 
                 // (6) 写回地址递推：unit 每行 +32 → bank+2、addr+5(+1 进位)
                 if (pc == 5'd9) begin
-                    wbank <= base_bank;
-                    waddr <= base_addr;
+                    wbank <= obank;
+                    waddr <= oaddr;
                 end else if ((pc >= 5'd10) && (pc <= 5'd13)) begin
                     wbank <= ((wbank + 3'd2) >= 3'd6) ? (wbank + 3'd2 - 3'd6) : (wbank + 3'd2);
                     waddr <= ((wbank + 3'd2) >= 3'd6) ? (waddr + 13'd6) : (waddr + 13'd5);
                 end
 
-                // (7) 下一个 oc
+                // (7) 下一个 oc：unit 基底 +3840 → bank 不变、addr +640
                 if (pc == 5'd14) begin
+                    oaddr <= oaddr + 13'd640;
                     if (oc == COUT[2:0] - 3'd1) begin
                         st <= S_DONE;
                     end else begin

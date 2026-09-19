@@ -144,9 +144,14 @@ module conv_board_top #(
     //------------------------------------------------------------------
     // 跑完 → 回读 1280 个 unit（8 oc × 20 row × 8 u）算校验和 → 比常数
     //------------------------------------------------------------------
-    localparam [1:0] S_RUN = 2'd0, S_RD = 2'd1, S_CMP = 2'd2, S_END = 2'd3;
+    // ★ 200 MHz：校验和这条路原来是 BRAM RDATA → 40 bit 加法 → 40 bit 相等比较 →
+    //   led 寄存器，45 级逻辑、4.99 ns，成了全设计最差路径。
+    //   现在拆成三级流水：① 先把读数据寄存一拍 ② 只做 40 bit 加法
+    //   ③ 比较按 5 个 8 bit 分片各自寄存，再 AND 汇总 → 每级都只剩两三级逻辑。
+    localparam [2:0] S_RUN = 3'd0, S_RD = 3'd1, S_CMP = 3'd2, S_CMP2 = 3'd3,
+                     S_CMP3 = 3'd4, S_CMP4 = 3'd5, S_END = 3'd6;
 
-    reg  [1:0]  st = S_RUN;
+    reg  [2:0]  st = S_RUN;
     reg  [2:0]  oc_r = 3'd0;
     reg  [4:0]  row_r = 5'd0;
     reg  [2:0]  u_r = 3'd0;
@@ -156,6 +161,10 @@ module conv_board_top #(
     reg  [39:0] chk = 40'd0;
     reg         pass = 1'b0, fail = 1'b0;
     reg         rd_pend = 1'b0;
+    reg  [39:0] rd_d1   = 40'd0;      // 读数据寄存一拍
+    reg         rd_p1   = 1'b0;       // rd_d1 有效标志
+    reg  [4:0]  eq_s    = 5'd0;       // 分片比较结果
+    integer     bi;
 
     // u_r<7 时 unit +1；u_r==7 换行时 unit +25（=32-7）
     //   +1  → bank+1，bank 回绕时 addr+1
@@ -169,6 +178,7 @@ module conv_board_top #(
             chk <= 40'd0; pass <= 1'b0; fail <= 1'b0;
             p2_rd_en <= 1'b0; p2_rd_bank <= 3'd0; p2_rd_addr <= 13'd0;
             rd_pend <= 1'b0; bank_c <= 3'd0; addr_c <= 13'd0;
+            rd_d1 <= 40'd0; rd_p1 <= 1'b0; eq_s <= 5'd0;
         end else begin
             case (st)
             S_RUN: begin
@@ -176,7 +186,8 @@ module conv_board_top #(
                 if (done) begin
                     st <= S_RD;
                     oc_r <= 3'd0; row_r <= 5'd0; u_r <= 3'd0;
-                    chk <= 40'd0; rd_pend <= 1'b0;
+                    chk <= 40'd0; rd_pend <= 1'b0; rd_p1 <= 1'b0; eq_s <= 5'd0;
+                    pass <= 1'b0; fail <= 1'b0;
                     bank_c <= 3'd0; addr_c <= 13'd0;
                 end
             end
@@ -185,8 +196,10 @@ module conv_board_top #(
                 p2_rd_en   <= 1'b1;
                 p2_rd_bank <= bank_c;
                 p2_rd_addr <= addr_c;
-                if (rd_pend) chk <= chk + p2_rd_data;
+                if (rd_pend) rd_d1 <= p2_rd_data;   // ① 先寄存
+                if (rd_p1)   chk <= chk + rd_d1;    // ② 只做加法
                 rd_pend <= 1'b1;
+                rd_p1   <= rd_pend;
 
                 bank_c <= bn_b1;
                 addr_c <= (u_r == 3'd7) ? ((bank_c == 3'd5) ? (addr_c + 13'd5) : (addr_c + 13'd4))
@@ -208,12 +221,32 @@ module conv_board_top #(
                 end else u_r <= u_r + 3'd1;
             end
 
+            // 流水冲刷第 1 拍：这一拍 p2_rd_data 正是**最后一个** unit
             S_CMP: begin
                 p2_rd_en <= 1'b0;
-                // 收最后一拍
-                if (rd_pend) chk <= chk + p2_rd_data;
-                pass <= (chk + p2_rd_data == GOLDEN_CHK);
-                fail <= (chk + p2_rd_data != GOLDEN_CHK);
+                if (rd_pend) rd_d1 <= p2_rd_data;
+                if (rd_p1)   chk <= chk + rd_d1;
+                rd_p1 <= rd_pend;
+                st <= S_CMP2;
+            end
+
+            // 流水冲刷第 2 拍：把最后一个 unit 加进去
+            S_CMP2: begin
+                if (rd_p1) chk <= chk + rd_d1;
+                rd_p1 <= 1'b0;
+                st <= S_CMP3;
+            end
+
+            // ③ 分片比较：每片 8 bit 各自寄存，避免 40 bit 归约长链
+            S_CMP3: begin
+                for (bi = 0; bi < 5; bi = bi + 1)
+                    eq_s[bi] <= (chk[bi*8 +: 8] == GOLDEN_CHK[bi*8 +: 8]);
+                st <= S_CMP4;
+            end
+
+            S_CMP4: begin
+                pass <=  &eq_s;
+                fail <= ~(&eq_s);
                 st   <= S_END;
             end
 

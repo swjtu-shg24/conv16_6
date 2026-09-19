@@ -288,6 +288,47 @@ ERROR   : EXCEPTION_ACCESS_VIOLATION reading memory at 0x4a
 
 ---
 
+## 200 MHz 时序优化（第一轮）
+
+约束：`rtl/conv2/board/conv_board.sdc` → `create_clock -period 5.0000`（200 MHz）。
+`outflow/conv_board_inf.timing.rpt`（2026-09-20 01:34，含 win_load 优化）当时的结果：
+
+```
+Maximum possible analyzed clocks frequency : 5.118 ns / 195.389 MHz
+Setup worst slack : -0.118 ns
+```
+
+**关键发现**：setup 最差的 10 条路径**全部**是
+`u_top/u_plane/g_bank[*].u_mem/...|RCLK → led[1]~FF|D`（45 级逻辑、4.99 ns），
+也就是**板级测试顶层的回读校验和**，不是卷积数据通路。
+（`set_false_path -to [get_ports led[*]]` 只作用于**端口**，管不到驱动它的寄存器，
+所以这条路照旧被报出来。）
+
+| # | 改动 | 文件 | 效果 |
+|---|---|---|---|
+| 1 | `conv_win_load` 每 tile 常量预计算 + slot 计数器（**已含在上面那份报告里**） | `conv_win_load/conv_win_load.v` | 59 级 → 8 级 |
+| 2 | **回写地址递推**：`oc` 每 +1 时 unit += 120×32 = 3840，而 `3840 % 6 == 0` ⇒ **bank 不变、addr 只 +640**；整块基底只在 `start` 那拍算一次并寄存 | `conv_l1/conv_l1.v` | 去掉回写路径上的 `*120`、`%6`、`/6` 组合链 |
+| 3 | **校验和三级流水**：① 读数据寄一拍 ② 只做 40 bit 加法 ③ 比较按 5×8 bit 分片各自寄存再 AND | `board/conv_board_top.v` | 45 级 → 每级 2~3 级 |
+
+> 改动 3 的坑：流水之后**最后一个 unit 会漏加**（第一次跑出来 `chk = c1e9f1eaaf`，
+> 与 GOLDEN 差 `0x0101010000`，正好一个 unit）。原因是最后一拍数据在 FSM 离开
+> `S_RD` 那一拍才出现，必须先"冲刷"两拍（`S_CMP` 收数、`S_CMP2` 再加）才能比较。
+> 现在状态机是 `S_RUN → S_RD → S_CMP → S_CMP2 → S_CMP3(分片比较) → S_CMP4(汇总) → S_END`。
+
+优化后回归：
+
+| 项 | 结果 |
+|---|---|
+| `tb_l1` | **PASS** |
+| `tb_board` | **PASS**，校验和仍为 `c2eaf2eaaf` |
+| `tb_top_full`（整帧 320×240×3→160×120×8） | **PASS**，抽样 320 个 plane unit **0 失败**，`win_req/wl_start/win_vld = 2304/2304/2304`，187,254 拍 |
+
+**下一步**：用 `conv_board_inf.xml` 重新跑 PnR，把新的 timing report 发我 ——
+这条校验和路径拆掉之后，才能看到真正的下一条关键路径（预计会落到
+`conv_in_dma` 的字节重排 / `conv_l1` 的 100 路累加 上）。
+
+---
+
 ## 板级验证（不接 DDR，内部自己造激励）
 
 `rtl/conv2/board/` 里是**可综合**的板级顶层：
