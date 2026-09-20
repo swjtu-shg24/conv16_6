@@ -181,6 +181,61 @@ vsim -c -do rtl/conv2/conv_plane/run.do        :: 输出面
 
 每个文件夹一个独立 work 库，产物落在本文件夹：`work/`、`transcript`、`<模块>.wlf`。
 
+### 全局仿真 + 波形（GUI，按数据流分组）
+
+```bat
+:: 整帧 320x240x3 -> 160x120x8（约 4~7 分钟，tb_top_full）
+rtl\conv2\run_wave.bat
+
+:: 小图 80x40x3 -> 40x20x8（约 30 秒，看波形更舒服，tb_top）
+rtl\conv2\run_wave.bat small
+```
+
+`run_wave.bat` 只管编译 + 起 GUI，波形布局在 `rtl/conv2/wave_full.do`，
+按**数据流顺序**分成 12 组（共 90 多个关键信号）：
+
+| 组 | 内容 | 代表信号 |
+|---|---|---|
+| 0 | 全局 | `clk/rstn/start/done` + `u_top/tile_r`、`tile_c`、`u_sched/rcnt` |
+| 1 | DDR 读激励（tb 假 DDR） | `rd_en/rd_addr/rd_valid/rd_data`、`lat/lat_addr/rcnt/rbusy` |
+| 2 | `conv_in_dma` 字节重排 | `st/row/slot/limit/beat/bcnt/fill/e/uu/abuf`、`b_wr_*` |
+| 3 | `conv_band12` | `b_wr_*` / `b_rd_*`（bank/addr/data） |
+| 4 | `conv_win_load` 窗口装配 | `st/r/slot_q/slot_eff/rd_addr_w`、`row_base_q/u0_q/bank_q/addr_off_q/chr_q`、`win_d[0..2]` |
+| 5 | dw 相位（3×3） | `st/ch/c`、`win_req/win_ch`、`fm_op/fm_start/fm_wdata_en`、`pe_lb[0]/pe_out[0]/dwc[*][0]` |
+| 6 | pw 相位（1×1+量化+池化） | `oc/pc/pw_cin`、`pacc[0]/qq[0]/pl_en/pool_q[0..2]/pool_vld/pool_oc` |
+| 7 | 写回 plane | `u_l1/wbank/waddr/obank/oaddr`、`p2_wr_en/bank/addr/data` |
+| 8 | 调度/握手 | `u_sched/started/l1_done_p/need_next/wl_pend/pend_row`、`rows_free/l1_start/l1_done/wl_busy` |
+| 9 | 回读校验 | `p2_rd_en_r/p2_rd_bank_r/p2_rd_addr_r/p2_rd_data` |
+| 10 | 结果总线 | `u_top/p2_rd_data`、`u_l1/done` |
+| 11 | `run -all` | — |
+
+两个坑（脚本里已处理）：
+
+1. **`[ ]` 是 Tcl 的命令替换** —— `add wave u_wl/win_d[0]` 会报
+   `invalid command name "0"`。调用点用 `{...}` 括住，并且 `proc w` 内部还要把
+   `[`/`]` 转义（`uplevel`/`eval` 都是"拼成命令串再求值"）。
+2. `add wave` 失败会**中断整个 do 宏** —— 所以每条都包在 `catch` 里，
+   名字对不上只打印一行 `[wave-skip]`，后面的分组照常加。
+   （验证方式：用小图跑一遍，日志里应当**一条 `[wave-skip]` 都没有**。）
+
+产物：`rtl/conv2/wave.wlf`（波形）、`rtl/conv2/transcript_wave`（文字）。
+
+### run.bat 的两个坑（12 个 bat 已统一重建：**纯 ASCII + CRLF**）
+
+1. **LF 行尾 + UTF-8 中文 = cmd 解析错位**。`chcp 65001` 一改码页，`cmd.exe` 按字节偏移
+   续读批处理文件就会落到行中间，把注释当命令执行 —— 现象就是一堆
+   `'害' 不是内部或外部命令`、`'EM' …`、`'ve（文字记录）' …` 这种被切碎的片段。
+   → 所有 `run.bat` 改成 **CRLF + 纯 ASCII 注释**（中文说明留在 README 和 `.do` 里；
+   `.do` 是 ModelSim 的 Tcl 读的，UTF-8 没问题）。
+2. **`vlog`/`vmap` 用裸名字调用会找不到 `modelsim.ini`**。它们靠 `argv[0]` 定位安装目录：
+   走 PATH 的裸名字只会在**当前目录**找 ini（本机 `MODEL_TECH` 没设置、cwd 也没有 ini），
+   直接报 `(vlog-7) Failed to open ini file "modelsim.ini"` / `(vmap-20) Cannot access…`。
+   → bat 里统一用**全路径**调用 `D:\modeltech64_10.4\win64\{vsim,vlib,vmap,vlog}.exe`。
+   （`run.do` 里嵌套的裸名 `vlib/vmap/vlog/vsim` 是没问题的：外层 vsim 会把
+   `MODEL_TECH` 传给子进程。）**换 ModelSim 安装路径就改 bat 顶部那 4 行 `if exist`。**
+3. 顺带修掉 `board\run.bat` 里 `cd /d %~dp0..\..\..\..`（多退了一级，会跑到工作区外面）。
+
+
 | 文件夹 | 库名 | tb | 依赖（用 `../xxx/`） |
 |---|---|---|---|
 | `conv_cmp4_tree` | `ltree` | `tb_cmp4_tree` | — |
