@@ -61,8 +61,14 @@ db/*
 work/*
 work_*/*
 
-# 3.2 Efinix 命令行流程脚本：想留就留（见 GIT_TRACKING.md 第 6 节）
-!work_*/run_efx_*.sh
+# 3.2 Efinix 命令行流程脚本：**不跟踪**（2026-09-20 变更）
+#     run_efx_map.sh / run_efx_pnr.sh / run_efx_pgm.sh 都是 Efinity 打开工程时自动生成的，
+#     内容全是**本机绝对路径**（如 D:/Efinity/2026.1/... 或 E:/yilisi/project/conv16_6/...），
+#     换机器 / 换目录必然冲突，且没有任何需要共享的信息。
+#     ⇒ 要跑综合 / PnR，让 Efinity 在本机重新生成即可。
+#     ❌ 不要再用 `!work_*/run_efx_*.sh` 把它们放行回来（本行就是旧的放行规则，已删除）。
+#     注：第 3.1 节的 `work_*/*` 已经覆盖了它们，删除下面那行后即被忽略。
+
 
 # 3.3 ModelSim / Questa 仿真产物
 *.wlf

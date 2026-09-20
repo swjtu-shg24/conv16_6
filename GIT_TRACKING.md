@@ -18,7 +18,7 @@
 | 文档 `*.md` `README*` | ✅ | 第 2.4 节 |
 | 仿真产物 `work/` `*.wlf` `wlft*` `transcript` | ❌ | 第 3.3 节 |
 | Efinity 输出 `outflow/` `ooc/` `ip/` `db/` | ❌ | 第 3.1 节 |
-| Efinity 工作目录 `work_pnr/` `work_syn/` `work_pt/` | ❌ | 第 3.1 节（`run_efx_*.sh` 除外） |
+| Efinity 工作目录 `work_pnr/` `work_syn/` `work_pt/`（**含 `run_efx_*.sh`**） | ❌ | 第 3.1 / 3.2 节 |
 | 报告/中间件 `*.rpt` `*.log` `*.csv` `*.vdb` `*.primplace` ... | ❌ | 第 3.4 节 |
 
 **为什么用白名单而不是黑名单**：产物类型会随工具版本变化（新增 `*.rst`、`*.json5` 之类），黑名单很容易漏；白名单则是「没放行的都不进」，漏不掉。
@@ -43,8 +43,10 @@ rtl/pe_test/*.v/*.f/*.do/*.bat   DSP 配置验证（pe_test.v / pe_test_tb.v / f
 rtl/pe_test_top.v              综合用测试顶层
 rtl/pe_16_6/**                 16×6 PE 阵列（.v/.f/.do/.bat/.json）
 rtl/pe10_10/**                 10×10 PE 阵列（.v/.f/.do/.bat/.json）
-work_syn/run_efx_map.sh        Efinix 命令行流程脚本（是否保留见第 6 节）
 ```
+
+> **不再跟踪**：`work_syn/run_efx_map.sh`、`work_pnr/run_efx_pnr.sh`、`work_pnr/run_efx_pgm.sh`
+> （Efinity 自动生成，内含本机绝对路径）—— 见第 3.2 节与第 6 节。
 
 ---
 
@@ -55,6 +57,7 @@ outflow/            比特流(.bit)、网表(.netlist/.map.v)、报告(.rpt/.xml
                     .lpf/.sdc/.pt 等 —— 全部是生成物
 ooc/  ip/  db/      综合/IP 中间目录
 work/  work_pnr/  work_syn/  work_pt/
+work_*/run_efx_*.sh                     Efinix 自动生成，内含本机绝对路径 -> 不跟踪（2026-09-20）
 work/  *.qdb *.qtl *.qpg *.vstf        综合/仿真的库文件
 *.wlf  wlft*  transcript                ModelSim 波形库与日志
 *.rpt *.log *.out *.bak *.csv *.vdb *.primplace *.io_place
@@ -94,19 +97,22 @@ git add -A
 git commit -m "chore: 添加 .gitignore，仓库只跟踪源码/配置/脚本"
 
 # 3) 如果发现某个产物以前已经被 commit 进去了，把它从索引里移出（保留磁盘文件）
-#    ✅ 本仓库已于 2026-09-10 执行完毕，共移出 94 个产物文件，当前仅跟踪 23 个源码/配置文件
+#    ✅ 本仓库已于 2026-09-10 执行完毕，共移出 94 个产物文件
+#    ✅ 2026-09-20 又移出 2 个机器相关脚本（详见第 6 节）：
+#       git rm --cached work_syn/run_efx_map.sh work_pnr/run_efx_pnr.sh
+#    （当前共跟踪 188 个源码/配置文件，可用 `git ls-files | wc -l` 复核）
 # git rm -r --cached outflow work work_pnr work_syn work_pt ip ooc
 # git commit -m "chore: 停止跟踪仿真/综合产物"
 ```
 
 ---
 
-## 6. 需要你人工确认的 3 项
+## 6. 需要你人工确认的 2 项
 
 | 项 | 说明 | 处理 |
 |---|---|---|
 | `outflow/conv10_10.lpf` | 引脚约束。**如果这是你手写的**（不是 Efinity 生成的），默认规则会忽略它 | 方案 1：把它复制到仓库里一个非产物目录（推荐，例如 `constraints/conv10_10.lpf`）<br>方案 2：`git add -f outflow/conv10_10.lpf`（每次改动都要 -f，容易忘） |
-| `work_*/run_efx_*.sh` | Efinix 生成的命令行流程脚本，记录了综合/布局参数 | 已用 `!work_*/run_efx_*.sh` 放行；若发现内容每次都变，把这行注释掉即可 |
+| ~~`work_*/run_efx_*.sh`~~ | Efinix 生成的命令行流程脚本，记录了综合/布局参数 | ✅ **已决（2026-09-20）：不跟踪**。脚本内容是本机绝对路径（`D:/Efinity/...` vs `E:/yilisi/project/conv16_6/...`），两台机器一交替就冲突，且无共享价值。`.gitignore` 里旧的 `!work_*/run_efx_*.sh` 放行规则已删除，并从索引移出（**磁盘文件保留**，Efinity 需要时会重新生成） |
 | `ip/` | 若里面有**手写**的源码（不是 Efinity 生成的 IP 包装） | 在 `.gitignore` 里加例外，例如 `!ip/my_ip/*.v` |
 
 ---
