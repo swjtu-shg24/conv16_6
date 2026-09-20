@@ -124,6 +124,33 @@ module tb_top;
                      cyc2, u_top.tile_r, u_top.tile_c, u_top.u_sched.rcnt, u_top.wl_busy);
     end
 
+    // ---------------- l1 相位开销统计（真实 win_load 延迟下）----------------
+    integer c_idle=0, c_wreq=0, c_wwait=0, c_dw=0, c_pw=0, c_done=0, c_total=0;
+    reg     cnt_en = 1'b0;
+    always @(posedge clk) begin
+        if (cnt_en) begin
+            c_total = c_total + 1;
+            case (u_top.u_l1.st)
+                3'd0: c_idle  = c_idle  + 1;
+                3'd1: c_wreq  = c_wreq  + 1;
+                3'd2: c_wwait = c_wwait + 1;
+                3'd3: c_dw    = c_dw    + 1;
+                3'd4: c_pw    = c_pw    + 1;
+                3'd5: c_done  = c_done  + 1;
+            endcase
+        end
+    end
+
+    // ---------------- win_load 状态开销（每窗口里有多少拍真在访问 band）----------------
+    integer wl_idle=0, wl_run=0, wl_done=0;
+    always @(posedge clk) begin
+        if (cnt_en) case (u_top.u_wl.st)
+            2'd0: wl_idle = wl_idle + 1;
+            2'd1: wl_run  = wl_run  + 1;
+            2'd2: wl_done = wl_done + 1;
+        endcase
+    end
+
     // ---------------- 黄金模型 ----------------
     reg [39:0] exp_p [0:8*20*8-1];
     integer    errs = 0, checks = 0;
@@ -202,6 +229,7 @@ module tb_top;
 
         @(negedge clk); start = 1'b1;
         @(negedge clk); start = 1'b0;
+        cnt_en = 1'b1;
 
         k = 0;
         while ((done !== 1'b1) && (k < 300000)) begin @(negedge clk); k = k + 1; end
@@ -238,6 +266,21 @@ module tb_top;
 
         $display("\n---------------- tb_top 汇总 ----------------");
         $display("  比较 %0d 个 plane unit，失败 %0d", checks, rd_err);
+        $display("  ---- l1 相位开销（真实 win_load 延迟，%0d 个 tile）----", NTILE_R*NTILE_C);
+        $display("    S_IDLE    : %0d 拍", c_idle);
+        $display("    S_WREQ    : %0d 拍  (发 win_req, %0d 次)", c_wreq, NTILE_R*NTILE_C*3);
+        $display("    S_WWAIT   : %0d 拍  (等 win_vld = 窗口装载延迟)", c_wwait);
+        $display("    S_DW      : %0d 拍  (3x3 复用卷积)", c_dw);
+        $display("    S_PW      : %0d 拍  (1x1 + 池化 + 写回)", c_pw);
+        $display("    S_DONE    : %0d 拍", c_done);
+        $display("    ---- 合计 : %0d 拍 / tile = %0d 拍", c_total, c_total/(NTILE_R*NTILE_C));
+        $display("  ---- win_load 状态开销（%0d 个窗口）----", NTILE_R*NTILE_C*3);
+        $display("    S_IDLE : %0d 拍   (每窗口 %0d 拍)", wl_idle, wl_idle/(NTILE_R*NTILE_C*3));
+        $display("    S_RUN  : %0d 拍   (每窗口 %0d 拍 = 真正在读 band 的拍数)", wl_run, wl_run/(NTILE_R*NTILE_C*3));
+        $display("    S_DONE : %0d 拍   (每窗口 %0d 拍)", wl_done, wl_done/(NTILE_R*NTILE_C*3));
+        $display("    S_WWAIT/窗口 = %0d 拍  -> 非访问开销 = %0d 拍/窗口",
+                 c_wwait/(NTILE_R*NTILE_C*3),
+                 c_wwait/(NTILE_R*NTILE_C*3) - wl_run/(NTILE_R*NTILE_C*3));
         if (errs == 0) $display("  TB_TOP RESULT: PASS");
         else           $display("  TB_TOP RESULT: FAIL");
         $display("---------------------------------------------\n");

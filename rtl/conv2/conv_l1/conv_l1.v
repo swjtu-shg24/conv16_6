@@ -105,6 +105,13 @@ module conv_l1 #(
     reg [4:0] c;        // dw 计数器
     reg [4:0] pc;       // pw：**组内位置 m**（0..4，每 5 拍起一个 oc）
     reg [1:0] pw_cin;
+    // ★ dw 窗口预取：本通道窗口一到，就向 win_load 要**下一个通道**的窗口，
+    //   让"窗口装载（band 读口）"和"3x3 计算（PE）"重叠起来 —— 这两件事用的是
+    //   完全不同的硬件，原来却完全串行（每个通道白等 18 拍）。
+    //   wl_nxt_rdy = 预取的那个窗口已经回来了。
+    reg       wl_nxt_rdy;
+    // 当前通道还有没有后继通道（有才预取）
+    wire      pf_vld = (ch < CIN[1:0] - 2'd1);
 
     wire pw_mode = (st == S_PW);
 
@@ -243,7 +250,7 @@ module conv_l1 #(
     always @(posedge clk) begin
         if (!rstn) begin
             st <= S_IDLE; ch <= 2'd0; oc <= 4'd0; c <= 5'd0; pc <= 5'd0;
-            pw_cin <= 2'd0;
+            pw_cin <= 2'd0; wl_nxt_rdy <= 1'b0;
             win_req <= 1'b0; win_ch <= 2'd0;
             fm_wdata_en <= 1'b0; fm_op <= 1'b0; fm_start <= 1'b0;
             busy <= 1'b0;
@@ -273,6 +280,7 @@ module conv_l1 #(
                     busy <= 1'b1;
                     ch   <= 2'd0;
                     oc   <= 4'd0;
+                    wl_nxt_rdy <= 1'b0;
                     obank <= tb_bank;       // 整块基底只在这里算一次
                     // ★ 软件流水下 oaddr 是"写回"用的基底，比正在喂的 oc 落后 2 组
                     //   （第 g 组写回 oc-2），所以从 base(-1) = tb_addr - 640 起算；
@@ -291,14 +299,18 @@ module conv_l1 #(
             end
 
             S_WWAIT: begin
-                if (win_vld) begin
+                // win_vld 是单拍脉冲，可能在本通道计算的最后一拍才到（那时
+                // wl_nxt_rdy 还没置上），所以这里把"脉冲"和"标志"一起当条件。
+                if (win_vld || wl_nxt_rdy) begin
                     c  <= 5'd0;
                     st <= S_DW;
+                    wl_nxt_rdy <= 1'b0;
                 end
             end
 
             //---- dw 相位 ----
             S_DW: begin
+                if (win_vld) wl_nxt_rdy <= 1'b1;   // ★ 预取的窗口回来了
                 c <= c + 5'd1;
                 if (c == 5'd0) begin
                     fm_wdata_en <= 1'b1;
@@ -312,6 +324,17 @@ module conv_l1 #(
                             pe_lb[p] <= w_dw[ch*9 + c - 5'd1];
                 end
 
+                // ★ 窗口预取：在 c=1 发请求。
+                //   为什么必须是 c=1：`fm_wdata_en` 在 c=0 置起、c=1 有效，
+                //   `feature_map` 正是在 **c=1 那一拍的时钟沿**把 `win_d` 锁进去的。
+                //   若在更早（S_WWAIT 那一拍）就发请求，win_load 回来的新窗口会在
+                //   c=1 之前覆盖 `win_d` → feature_map 锁到**下一个通道**的窗口。
+                //   c=1 发请求时：新窗口最早也在本次 c=1 之后才写 `win_d`，安全。
+                if ((c == 5'd1) && pf_vld) begin
+                    win_req <= 1'b1;
+                    win_ch  <= ch + 2'd1;
+                end
+
                 if (c == CAP_CYCLE[4:0]) begin
                     for (p = 0; p < 100; p = p + 1)
                         dwc[ch][p] <= quant36(pe_out[p]);
@@ -322,7 +345,14 @@ module conv_l1 #(
                         st <= S_PW;
                     end else begin
                         ch <= ch + 2'd1;
-                        st <= S_WREQ;
+                        if (wl_nxt_rdy) begin
+                            // ★ 预取的窗口已经到了 → 不等，直接开始下一通道
+                            //   （下一通道的"再下一个"预取会在它的 c=1 自动发出）
+                            c          <= 5'd0;
+                            wl_nxt_rdy <= 1'b0;
+                        end else begin
+                            st <= S_WWAIT;      // 预取还没回来，再等一下
+                        end
                     end
                 end
             end

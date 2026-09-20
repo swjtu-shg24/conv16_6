@@ -172,14 +172,37 @@ module conv_win_load #(
                     end
                     slot_q <= (slot_q == SLOTS[3:0]-4'd1) ? 4'd0 : (slot_q + 4'd1);
                     r      <= r + 4'd1;
-                    if (r == NT[3:0]) st <= S_DONE;
+                    if (r == NT[3:0]) begin
+                        st   <= S_DONE;
+                        // ★ 提前一拍把 busy 落 0：这样 S_DONE 那一拍 wl_busy=0，
+                        //   conv_sched 的组合 wl_start 就能在 S_DONE 当拍拉高，
+                        //   于是 S_DONE 可以直接接着开下一个窗口（省掉一次 S_IDLE）。
+                        busy <= 1'b0;
+                    end
                 end
 
                 S_DONE: begin
                     for (c = 0; c < WN; c = c + 1) win_d[c] <= {10'd0, wbuf[c]};
                     win_vld <= 1'b1;
-                    busy    <= 1'b0;
-                    st      <= S_IDLE;
+                    if (start) begin
+                        // ★ 下一个窗口的请求已经在了 → 直接开始，不经过 S_IDLE。
+                        //   （常量重算一份；本模块每窗口只算一次，时序很宽松）
+                        row_base_q <= rowb[7:0];
+                        u0_q       <= u0v[5:0];
+                        sh_q       <= ((bcol % 5) != 0);
+                        bank_q     <= cs % 6;
+                        addr_off_q <= cs / 6;
+                        chr_q      <= ch;
+                        slot_q     <= sl0[3:0];
+                        tc_is_zero <= (tile_c == 6'd0);
+                        tc_is_last <= (tile_c == LAST_C);
+                        r          <= 4'd0;
+                        busy       <= 1'b1;
+                        st         <= S_RUN;
+                    end else begin
+                        busy <= 1'b0;
+                        st   <= S_IDLE;
+                    end
                 end
 
                 default: st <= S_IDLE;

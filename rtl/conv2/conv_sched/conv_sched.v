@@ -37,7 +37,7 @@ module conv_sched #(
 
     // ---- 窗口装载 ----
     input  wire        win_req,        // 来自 conv_l1，单拍
-    output reg         wl_start,       // 给 conv_win_load，单拍
+    output wire        wl_start,       // 给 conv_win_load（★ 组合输出，见下）
     input  wire        wl_busy,        // 来自 conv_win_load
 
     // ---- 输入信用 ----
@@ -55,6 +55,21 @@ module conv_sched #(
 
     wire l1_done_p = l1_done & ~l1_done_d;
 
+    //------------------------------------------------------------------
+    // ★ 窗口装载握手：wl_start 改成**组合**输出
+    //
+    //   原来它是寄存器，所以 win_req → wl_start 固定要 2 拍（pend 1 拍 + 寄存 1 拍），
+    //   而且 win_load 跑完一个窗口（busy 落 0）时 wl_start 也只能在它回到 S_IDLE
+    //   那一拍才到 → 每个窗口白等 2~3 拍。
+    //
+    //   改成组合后：
+    //     · win_req 当拍就能出 wl_start（零延迟）；
+    //     · win_load 把自己的 busy 在 **S_RUN 最后一拍**就落 0，于是它的 S_DONE
+    //       当拍就能看到 start，直接接着开下一个窗口（配合 conv_win_load 里的改动）。
+    //   路径：conv_l1 的 win_req 寄存器 → wl_start → win_load 的 start（很短）。
+    //------------------------------------------------------------------
+    assign wl_start = ((wl_pend != 6'd0) || win_req) && !wl_busy;
+
     // 起 tile 行 (tile_r+1) 之前需要的已写行数
     //   tile 行 k 要 rows 10k-1 .. 10k+10；k=NTILE_R-1 时 10k+10 会超出图像高度，
     //   反射后最高只用到 row IH-1，所以要钳到 IH（否则永远等不到 → 死锁）
@@ -66,7 +81,6 @@ module conv_sched #(
             l1_start  <= 1'b0;
             tile_r    <= 5'd0;
             tile_c    <= 6'd0;
-            wl_start  <= 1'b0;
             wl_pend   <= 6'd0;
             rows_free <= 1'b0;
             busy      <= 1'b0;
@@ -77,7 +91,6 @@ module conv_sched #(
             pend_row  <= 1'b0;
         end else begin
             l1_start  <= 1'b0;
-            wl_start  <= 1'b0;
             rows_free <= 1'b0;
 
             l1_done_d <= l1_done;
@@ -85,12 +98,11 @@ module conv_sched #(
             // ---- 输入带进度 ----
             if (in_row_vld && (rcnt != 9'd511)) rcnt <= rcnt + 9'd1;
 
-            // ---- 窗口装载请求：脉冲转脉冲 + pend 兜底 ----
-            if (win_req) wl_pend <= wl_pend + 6'd1;
-            if ((wl_pend != 6'd0) && !wl_busy) begin
-                wl_start <= 1'b1;
-                wl_pend  <= wl_pend - 6'd1;
-            end
+            // ---- 窗口装载请求：pend 计数（wl_start 是组合输出，见上面的 assign）----
+            //   "一进一出"当拍：pend 不变（新的那个补上刚走的那个）
+            if      (wl_start && win_req) wl_pend <= wl_pend;
+            else if (wl_start)            wl_pend <= wl_pend - 6'd1;
+            else if (win_req)             wl_pend <= wl_pend + 6'd1;
 
             // ---- 起第一个 tile：等带填够 11 行 ----
             if (start) started <= 1'b1;
