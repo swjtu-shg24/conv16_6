@@ -60,6 +60,7 @@ module pe_10_10_tb;
   reg rstn;
   reg op;
   reg acc_en_pw;
+  reg acc_clr;
   reg  [17:0] wdata[0:143];
   reg         wdata_en;
   wire [17:0] right_a_in_last_line[0:9];
@@ -90,6 +91,7 @@ module pe_10_10_tb;
     .rstn(rstn),
     .op(op),
     .acc_en_pw(acc_en_pw),
+    .acc_clr(acc_clr),
     .right_a_in_last_line(right_a_in_last_line),
     .buttom_a_in_last_line(buttom_a_in_last_line),
     .load_a_in(load_a_in),
@@ -109,7 +111,7 @@ always #10  clk = ! clk ;
   //-------------------------------------------------------------------------
   integer i;
 initial begin
-  clk=1'b0;rstn=1'b0;op=1;acc_en_pw=1'b0;
+  clk=1'b0;rstn=1'b0;op=1;acc_en_pw=1'b0;acc_clr=1'b0;
   for (i=0; i<100;i=i+1)begin
     load_b_in[i]=18'd1;
   end
@@ -163,21 +165,21 @@ initial begin
 
   //================ 插入周期的不复用乘法 
   @(posedge clk)begin
-    op=0;acc_en_pw=1'b1;//累加
+    op<=0;acc_en_pw<=1'b1;acc_clr<=1'b1;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+3;
   end
   end
     @(posedge clk)begin
-    op=0;acc_en_pw=1'b1;//累加
+    op<=0;acc_en_pw<=1'b1;acc_clr<=1'b0;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+4;
   end
   end
     @(posedge clk)begin
-    op=0;acc_en_pw=1'b0;//不累加
+    op<=0;acc_en_pw<=1'b0;//不累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+5;
@@ -186,7 +188,7 @@ initial begin
 
   //================ 第三次复用卷积 
      @(posedge clk)begin
-    op=1;start<=1'b1;
+    op<=1;start<=1'b1;
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+6;
@@ -203,49 +205,120 @@ initial begin
     @(posedge clk);
   end
 
-  //================ 直接乘法 
+  //================ 直接乘法 两次点卷积 2次 8结果累加
    @(posedge clk)begin
-    op=0;acc_en_pw=1'b1;//累加
+    op<=0;acc_en_pw<=1'b1;acc_clr<=1'b1;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+7;
   end
    end
       @(posedge clk)begin
-    op=0;acc_en_pw=1'b1;//累加
+   op<=0;acc_en_pw<=1'b1;acc_clr<=1'b0;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+8;
   end
    end
       @(posedge clk)begin
-    op=0;acc_en_pw=1'b1;//累加
+     op<=0;acc_en_pw<=1'b1;//累加3
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+9;
   end
    end
       @(posedge clk)begin
-    op=0;acc_en_pw=1'b1;//累加
+     op<=0;acc_en_pw<=1'b1;//累加4
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+10;
   end
    end
       @(posedge clk)begin
-    op=0;acc_en_pw=1'b0;//不累加
+     op<=0;acc_en_pw<=1'b1;//累加5
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+11;
   end
    end
       @(posedge clk)begin
-    op=0;acc_en_pw=1'b0;//不累加
+     op<=0;acc_en_pw<=1'b1;//累加6
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+12;
   end
    end
+      @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;//累加7
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+13;
+  end
+   end
+      @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;//累加8
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+14;
+  end
+   end
+      @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;acc_clr<=1'b1;//累加开始
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+15;
+  end
+   end
+      @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;acc_clr<=1'b0;//累加
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+16;
+  end
+   end
+   @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;//累加
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+17;
+  end
+   end
+   @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;//累加
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+18;
+  end
+   end
+   @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;//累加
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+19;
+  end
+   end
+   @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;//累加
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+20;
+  end
+   end
+   @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;//累加
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+21;
+  end
+   end
+   @(posedge clk)begin
+     op<=0;acc_en_pw<=1'b1;//累加
+    wdata_en<=1'b1;
+    for (i=0; i<FM_N;i=i+1)begin
+    wdata[i]<=i+22;
+  end
+   end
+   
 
   //================ 第四次复用卷积 
     @(posedge clk)begin

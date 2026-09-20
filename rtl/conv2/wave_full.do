@@ -124,18 +124,17 @@ w -radix unsigned {u_top/u_l1/dwc[1][0]}
 w -radix unsigned {u_top/u_l1/dwc[2][0]}
 
 #---------------------------------------------------------------------------
-w -divider {=== 6. conv_l1 / pw 相位：1x1 点卷积 + 量化 + 2x2 池化（pc=0..14）===}
+w -divider {=== 6. conv_l1 / pw 相位：1x1 点卷积 + 量化 + 2x2 池化（软件流水：pc=0..4 是组内位置，oc 每 5 拍 +1，3 个 oc 同时在飞）===}
 w -radix unsigned u_top/u_l1/oc
 w -radix unsigned u_top/u_l1/pc
 w -radix unsigned u_top/u_l1/pw_cin
 w -radix hex {u_top/u_l1/pe_out[0]}
 w u_top/u_l1/acc_en_pw
 w -radix dec {u_top/u_l1/u_pe/pe_gen[0]/pe_inst/acc}
-w -radix unsigned {u_top/u_l1/qq[0]}
+w -radix unsigned {u_top/u_l1/qq}
 w u_top/u_l1/pl_en
-w -radix unsigned {u_top/u_l1/pool_q[0]}
-w -radix unsigned {u_top/u_l1/pool_q[1]}
-w -radix unsigned {u_top/u_l1/pool_q[2]}
+w -radix unsigned {u_top/u_l1/pool_q}
+
 w u_top/u_l1/pool_vld
 w -radix unsigned u_top/u_l1/pool_oc
 

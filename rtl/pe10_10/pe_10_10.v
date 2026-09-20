@@ -5,6 +5,7 @@ module pe_10_10#(
     input        rstn,
     input        op,//0为pe_output=b_in*a_in;1为卷积数据复用模式
     input        acc_en_pw,
+    input        acc_clr,
     input [17:0] right_a_in_last_line[0:9],
     input [17:0] buttom_a_in_last_line[0:9],//a为数据
     input [17:0] load_a_in[0:99],
@@ -74,6 +75,7 @@ generate
       .rstn            (rstn),
       .op              (op),
       .acc_en_pw        (acc_en_pw),
+      .acc_clr          (acc_clr),
       .kernel_width    (kernel_width),
       .kernel_height   (kernel_height),
       .right_a_in      (right_a_in[i]),

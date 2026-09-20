@@ -36,6 +36,7 @@ module tb_pe_rules;
 
   reg  clk, rstn, op, wdata_en, start;
   reg         acc_en_pw;                  // ★ op=0 时的 PE 内部累加使能
+  reg         acc_clr;                    // ★ op=0 时强制重启累加（延迟 3 拍）
   reg  [17:0] wdata [0:FMN-1];
   reg  [17:0] lb    [0:N-1];
 
@@ -61,6 +62,7 @@ module tb_pe_rules;
   pe_10_10 u_pe (
     .clk(clk), .rstn(rstn), .op(op),
     .acc_en_pw(acc_en_pw),
+    .acc_clr(acc_clr),
     .right_a_in_last_line(right_a_in_last_line),
     .buttom_a_in_last_line(buttom_a_in_last_line),
     .load_a_in(load_a_in), .load_b_in(lb),
@@ -94,7 +96,8 @@ module tb_pe_rules;
   task automatic do_reset;
     integer tt;
     begin
-      rstn = 1'b0; op = 1'b0; wdata_en = 1'b0; start = 1'b0; acc_en_pw = 1'b0;
+      rstn = 1'b0; op = 1'b0; wdata_en = 1'b0; start = 1'b0;
+      acc_en_pw = 1'b0; acc_clr = 1'b0;
       for (tt = 0; tt < FMN; tt = tt + 1) wdata[tt] = 18'd0;
       for (tt = 0; tt < N;   tt = tt + 1) lb[tt]    = 18'd0;
       repeat (6) @(negedge clk);

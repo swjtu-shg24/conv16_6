@@ -87,7 +87,7 @@ unit 总数 = 8*120*32 = 30,720  →  bank = unit mod 6, addr = unit/6 ∈ [0,51
 
 ---
 
-## PE 阵列的使用契约（由 `rtl/pe10_10/tb_pe_rules.v` 仿真实测钉死，8/8 PASS）
+## PE 阵列的使用契约（由 `rtl/pe10_10/tb_pe_rules.v` 8/8 + `rtl/pe10_10/tb_pe_pw_stream.v` 钉死）
 
 | # | 结论 |
 |---|---|
@@ -99,6 +99,7 @@ unit 总数 = 8*120*32 = 30,720  →  bank = unit mod 6, addr = unit/6 ∈ [0,51
 | F6 | 直接相乘（`op=0`）：`load_b_in` → `peo` = **3 拍**，1 拍 1 个乘积；**`acc_en_pw=0` 时不累加**（`acc <= dsp_o`，每拍被乘积装载） |
 | F7 | `pe_10_10` 把 48bit `PE_output` 截成 36bit；本设计数据 8bit → ≤2^19，安全 |
 | F8 | 直接相乘要**内部累加**：拉高 `acc_en_pw`。但 PE 里取的是 `acc_en_pw_reg[2] & acc_en_pw_reg[3]`（两级"与"，`acc_en_pw_reg` 是 `acc_en_pw&&!op` 的 4 级移位寄存器）→ 累加窗口比拉高窗口**后移 3 拍、少 1 拍**：拉高 N 拍只有 N-1 拍累加 |
+| F9 | 要"把累加归零重来"：拉高 `acc_clr`（**延迟 3 拍**生效，判的是 `acc_clr_reg[2]`）→ 该拍 `acc <= dsp_o`，即把当前乘积当作本组第 1 项；`acc_clr` 优先级**高于** `acc_en`。于是 `acc_en_pw` 可以**全程拉高**，改用 `acc_clr` 分组：连续拉高 N 拍就一拍一个乘积累加 N-1 拍、**零空拍**（`tb_pe_pw_stream` 验的：两组各 8 项，和 = 836 / 900 与 `acc` 逐位吻合） |
 
 ### L1 dw 相位的实测时序（`conv_l1` 直接照这个写，不要猜）
 
@@ -119,7 +120,9 @@ unit 总数 = 8*120*32 = 30,720  →  bank = unit mod 6, addr = unit/6 ∈ [0,51
 
 ### L1 pw / 池化 / 写回的实测时序（同一个 tb 验的）
 
-**pw 相位（直接相乘 `op=0`）**，每个 oc 15 拍（`pc=0..14`）：
+**pw 相位（直接相乘 `op=0`）—— 软件流水：一个 oc 的"格"15 拍，但相邻 oc 只隔 5 拍**
+
+先看**一个 oc 自己的格**（`pc` 相对该 oc 的起点）：`pc=0..14`
 
 | pc | 动作 |
 |---|---|
@@ -139,6 +142,28 @@ unit 总数 = 8*120*32 = 30,720  →  bank = unit mod 6, addr = unit/6 ∈ [0,51
 所以只需要"pc=4 不累加、pc=5/6 累加"，反推 `acc_en_pw` 要在 **pc=1,2,3** 拉高（见 F8 的"后移 3 拍、少 1 拍"）。
 结果是 pc=7 的 `peo` = p1+p2+p3，与原来的 `pacc + peo` 拍号完全一致 → 改动逐位等价
 （`tb_board` 校验和仍是 `c2eaf2eaaf`）。契约由 `tb_pe_rules` 的 **T7** 钉死。
+
+**流水化**：一个 oc 的 15 拍里，各阶段用的**资源互不重叠** —— `feature_map`/DSP/`acc` 在 pc=1..6、
+`qq`/池化树在 pc=7..9、plane 写口在 pc=10..14。所以把相邻 oc 的起点从 15 拍**提前到 5 拍**，
+三个 oc 错开叠起来跑（格内时序一拍不改）。令 `oc` = 组号 g（正在"喂"的 oc）、`pc` = 组内位置 m：
+
+| m | 喂 oc（组号 g） | 算 oc-1 | 写回 oc-2 |
+|---|---|---|---|
+| 0 | a=dwc0/b=w0 起头 | `acc += p2` | row0 |
+| 1 | a=dwc1/b=w1 | `acc += p3` | row1 |
+| 2 | a=dwc2/b=w2 | `qq <= quant(peo)` | row2 |
+| 3 | b=w2 收尾 | `pl_en` 第 1 拍 | row3 |
+| 4 | `acc` 装载 p1 | `pl_en` 第 2 拍 | row4 + 装载下一个 oc 的地址基底 |
+
+映射关系：oc 的 `pc=0..4` → 组 oc，`pc=5..9` → 组 oc+1，`pc=10..14` → 组 oc+2
+（所以 `acc_en_pw` 在组 g 的 m=1,2,3 拉高，实际累加落在组 g+1 的 m=0,1 = oc=g 的 pc=5,6）。
+
+**为什么是 5 拍、不能再快**：plane 写口 1 unit/拍，一个 oc 要写 5 个 unit（5 行），
+所以相邻 oc 的写回至少隔 5 拍；且 oc-2 的写回要读完 `pl_dout`（5 拍）之后，oc-1 的新池化结果
+才能覆盖它（否则 row4 被冲掉）。5 拍正好把写口打满 —— 这是**硬下限**：8 oc × 5 unit = 40 unit。
+
+实测（`tb_l1_time`）：`S_PW` **120 → 50 拍**，整个 tile **172 → 102 拍**（`S_WREQ`3 + `S_WWAIT`6 + `S_DW`42 + `S_PW`50 + `S_DONE`1），
+`p2_wr_en` 仍是 40 次。**校验和不变**（`c2eaf2eaaf`）→ 逐位等价。
 
 ★ **关键**：`feature_map_12_12` 的 `load_a_in` 只能来自它内部的 `feature_map[]`，
 所以直接相乘的 a 数据**必须经 `wdata_en` 装进 12×12 图的左上 10×10**（这就是"放在左上区域"的真正含义）。
@@ -283,6 +308,7 @@ rtl\conv2\run_wave.bat small
 | `conv_in_dma` | `tb_dma` | 240 行 DDR→band 全搬；**16B→20B 字节重对齐**；`rows_free` 信用真能挡停生产者；前 11 行 + 末 12 行共 4608 个 unit 逐字节比对 | **PASS** |
 | `conv_l1`（dw 专项） | `tb_l1_dw` | 9 个核位置单点置 1 定映射；扫 (权重偏移, 拍号) 定抓数拍；3 通道 × 100 PE 全量对拍 | **PASS** |
 | `pe_10_10` 使用契约 | `tb_pe_rules` | PE 规则 8 项；**T7 = 直接相乘 + `acc_en_pw` 内部累加**（照 `conv_l1` 的 pw 相位驱动，pc=7 的 100 个 lane = `a0*w0+a1*w1+a2*w2`） | **PASS** |
+| `pe_10_10` 流式累加 | `tb_pe_pw_stream` | **F9**：`acc_en_pw` 全程拉高 + `acc_clr` 分组 → 两组各 8 项**连续累加、零空拍**；`dsp_o` 逐拍 +1（每拍一个新乘积） | **PASS** |
 | `conv_l1`（整片） | `tb_l1` | dw → pw → 量化 → **池化** → **写回**；8 oc × 5×5 池化结果 + plane 写口的 40 个 unit（地址 + 数据）全对 | **PASS** |
 | `conv_sched` | `tb_sched` | tile 序列（r,c）逐拍核对；`l1_start`/`wl_start`/`rows_free` 次数；等带填满才起第一个 tile；`done` | **PASS** |
 | `conv_plane` | `tb_plane` | 30,720 unit 全写全读；seg 0..9；读延迟=1 | **PASS** |
@@ -311,6 +337,10 @@ rtl\conv2\run_wave.bat small
 | 17 | **`efx_map` 命令行空指针崩溃** | `ERROR: EXCEPTION_ACCESS_VIOLATION reading memory at (nil)`，栈固定是 `libefx.dll+0x3f333 → ucrtbase → efx_map.exe+0x19323`。**连之前跑通过的 memtest 原命令现在也崩**（同一段栈）→ 说明是**这个环境/这次会话**的问题，不是设计的锅（怀疑与一直开着的 Efinity GUI 抢资源/锁有关）。综合请走 GUI |
 | 18 | **wire 用在声明之前 → vlog 当隐式 net，正式声明处报 `(vlog-2388) already declared`** | 新加的 `wire acc_en_pw` 一开始写在 `pe_10_10` 例化**之后**，例化里先引用了一次 → 必须先声明再用（`default_nettype none` 也能提前暴露） |
 | 19 | **PE 的 `acc_en_pw` 不是"拉高即累加"** | PE 内部取的是 `acc_en_pw_reg[2] & acc_en_pw_reg[3]`（两级"与"），累加窗口比拉高窗口**后移 3 拍、少 1 拍**：拉高 N 拍只累加 N-1 拍。要累加 2 次（pc=5,6）就得拉高 3 拍（pc=1,2,3）。契约由 `tb_pe_rules` 的 **T7** 钉死 |
+| 20 | **`qq` 是 8bit，把 `quant24` 删掉不是"不量化"，而是"低 8 位回绕"** | `qq[p] <= pe_out[p][23:0]` 实际只留 bit[7:0]（2295→247、-20→236），函数不再单调 → 池化取 max 失去意义。症状：`tb_l1`/`tb_top`/`tb_board` 全挂（校验和从 `c2eaf2eaaf` 变成 `1fca38fc76`），但 `tb_l1_dw` 照样 PASS（dw 路径没动）→ 一眼定位到 pw 输出那一级。要真去量化必须把 `qq` + 池化树（`conv_cmp4_tree`/`conv_pool_arr`）+ 写回通路一起加宽；或者利用 quant 的单调性把它**搬到池化之后**（`max∘quant ≡ quant∘max`，结果逐位等价，golden 不用改） |
+| 21 | **PE 新增端口后忘了接，会让旧实例悬空成 `z`** | `acc_clr` 加进来后，`conv_l1`/`tb_pe_rules` 里没接的实例会悬空；`z` 在 `if` 里恰好当假所以"碰巧能跑"，但不能留着 —— 仿真给假值、综合给 0，两边语义不一致。新端口一律显式接（本工程 `conv_l1` 接 `1'b0`、`tb_pe_rules` 接 `acc_clr` 并置 0） |
+| 22 | **"每拍一个 oc"看着很诱人，但 plane 写口才是 pw 的硬下限** | 一个 oc 要写 5 个 unit（5 行 = 5B），写口 1 unit/拍 ⇒ 相邻 oc 至少隔 5 拍。再快就得改 `conv_plane` 的写口宽度或 40bit/unit 的打包方式。所以流水化做到 **50 拍**（7×5 + 15 排空）就到头了，不是 24 拍 |
+| 23 | **流水化时"谁在什么时候用 `pl_dout`"必须逐拍对齐，否则最后一行的写回被冲掉** | oc 的池化结果在它的 row0 写回那一拍才就绪，直到 row4 写完才允许被下一个 oc 的 `pl_en` 覆盖。本设计靠"oc-2 写回 5 拍 / 下一个池化 en 在 m=3,4"天然错开；但最后一组（`oc=COUT+1`，对应无效的 `oc-1=COUT`）必须把 `pl_en` 卡掉，否则会在 `COUT-1` 的 row4 写回当拍把 `pl_dout` 冲掉 |
 
 ### 综合（GUI）当前进展与卡点
 
@@ -428,9 +458,9 @@ Setup worst slack : -0.118 ns
 
 ### 整帧回归（`tb_top_full`，320×240×3 → 160×120×8，768 个 tile）—— **PASS**
 
-- 跑到 `done`：**186,887 拍 ≈ 243 拍/tile ≈ 0.93 ms @200MHz**
-  （其中纯计算 ≈ 171k 拍；多出来的 ~15.6k 拍是 23 个 tile 行边界各等 DMA 补 ~680 拍，
-   这是"等带真正填好"的必然代价——用 `rows_free` 只放行不等待的版本会读到旧行，见踩坑 #12）
+- 跑到 `done`：**133,127 拍 ≈ 173 拍/tile ≈ 0.67 ms @200MHz**
+  （pw 相位软件流水前是 186,887 拍 / 243 拍/tile / 0.93 ms；一个 tile 的纯计算从 172 降到 **102 拍**，
+   剩下 ~71 拍/tile 是 23 个 tile 行边界等 DMA 补带的开销 —— 见踩坑 #12）
 - 抽样 8 个 tile（四角 + 四边 + 中间）逐字节比对 plane 的 **320 个 unit，全部 0 失败**
 - 窗口装载握手计数校验：`win_req = wl_start = win_vld = 2304`（= 768 tile × 3 通道），不多不少
 - 片数实测：`band12` 12 片 + `plane` 120 片 = **132 / 256 = 51.6%**（`rtl/conv2/count_bram.do` 在仿真里数的）

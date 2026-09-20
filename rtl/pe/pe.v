@@ -8,6 +8,7 @@ module pe
 
     input        op,//0为pe_output=b_in*a_in;1为卷积数据复用模式
     input        acc_en_pw, //在op为1时默认开启累加，但是在op为0时如需要累加需拉高acc_en_dw, 
+    input        acc_clr,
     input [17:0] right_a_in,
     input [17:0] buttom_a_in,//a为数据
     input [17:0] load_a_in,
@@ -26,6 +27,7 @@ reg [17:0]  input_reg_a[0:4];   // 垂直重用链，深度需 ≥ KMAX_W（最�
 reg [17:0]  input_reg_b;
 reg  [23:0]  load_a_in_opt_reg;
 reg  [3:0]  acc_en_pw_reg;
+reg  [3:0]  acc_clr_reg;
 reg         buttom_a_in_opt;
 reg         ce_reg1;
 reg         ce_reg2;
@@ -53,6 +55,8 @@ assign  layer_en[3]=kernel_height>=3'd5;
 always @(posedge clk ) begin
      load_a_in_opt_reg<=  {load_a_in_opt_reg[22:0],load_a_in_opt&&op_reg[0]};
      acc_en_pw_reg    <={acc_en_pw_reg[2:0],acc_en_pw&&!op};
+     acc_clr_reg<={acc_clr_reg[2:0],acc_clr};
+
 end
 
 wire load_opt_m0 = (kernel_width >= 3'd2) ? load_a_in_opt_reg[kernel_width-3'd2]
@@ -153,10 +157,11 @@ wire acc_en=(op_reg[2]&&!load_a_in_opt_reg[1])||(acc_en_pw_reg[2]&acc_en_pw_reg[
 always @(posedge clk ) begin
     if (!rstn) begin
         acc<=48'sd0;    
-    end else if (acc_en) begin
-        acc<=sum[47:0];
-    end else 
+    end else if (acc_clr_reg[2]) begin
         acc<=dsp_o;
+    end else if(acc_en)
+        acc<=sum[47:0];
+        else acc<=dsp_o;
 end
 
 assign PE_output=acc;

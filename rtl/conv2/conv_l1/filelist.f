@@ -13,3 +13,4 @@ rtl/conv2/conv_pool_arr/conv_pool_arr.v
 rtl/conv2/conv_l1/conv_l1.v
 rtl/conv2/conv_l1/tb_l1_dw.v
 rtl/conv2/conv_l1/tb_l1.v
+rtl/conv2/conv_l1/tb_l1_time.v

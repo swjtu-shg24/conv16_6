@@ -11,22 +11,27 @@
 //       c=13   : 抓 100 个 peo → (x+128)>>>8 clamp 0..255 → dwc[ch][*]
 //     （c=12 抓只有 8 个乘积，实测验证过）
 //
-//   ── pw 相位（直接相乘 op=0）───────────────────────────────────────
+//   ── pw 相位（直接相乘 op=0，**软件流水**）─────────────────────────
 //     ★ 关键：feature_map_12_12 的 load_a_in 只能来自它内部的 feature_map[]，
 //       所以直接相乘的 a 数据必须**经 wdata_en 装进左上 10×10 区域**。
 //     而 a 通道比 b 通道多一级（feature_map 寄存器 → input_reg_a[0]），
 //       实测 peo[k] = wdata(k-4) * load_b_in(k-3)：
 //       所以 a 在 pc 拍呈上、b 在 pc+1 拍呈上。
-//     ★ 3 个通道的乘积和现在由 **PE 内部累加器** 算（acc_en_pw），阵列外不再有 pacc。
-//       acc_en_pw 在 pc=1,2,3（= 逐拍喂 w_pw[oc*3+0..2] 的 3 拍）拉高，
-//       PE 内部的 2 级"与"把它后移 3 拍 → 累加正好落在 pc=5、pc=6，
+//     ★ 3 个通道的乘积和由 **PE 内部累加器** 算（acc_en_pw），阵列外没有 pacc。
+//       在"一个 oc 的格"内：acc_en_pw 在 pc=1,2,3（= 逐拍喂 w_pw[oc*3+0..2] 的
+//       3 拍）拉高，PE 内部的 2 级"与"把它后移 3 拍 → 累加落在 pc=5、pc=6，
 //       于是 pc=7 的 pe_out 就是 p1+p2+p3（见下面 acc_en_pw 处的推导）。
-//     每个 oc 用 15 拍：pc=0..2 呈 a（cin=pc）、pc=1..3 呈 b（同时 acc_en_pw）、
-//                      pc=7 量化、pc=8..9 池化（两级流水）、pc=10..14 写回 5 行
+//     ★ 一个 oc 的"格"是 15 拍：pc=0..2 呈 a（cin=pc）、pc=1..3 呈 b（同时
+//       acc_en_pw）、pc=7 量化、pc=8..9 池化（两级流水）、pc=10..14 写回 5 行。
+//       但相邻 oc 的**起点只隔 5 拍**（不是 15），三个 oc 同时在飞 ——
+//       各阶段用的资源互不重叠（feature_map/DSP/acc 在前段、qq/池化树在中段、
+//       plane 写口在后段），所以能叠起来。8 个 oc 从 120 拍降到 **50 拍**。
+//       详见 S_PW 里的映射表和"为什么是 5 拍"的推导。
 //
 //   ── 写回 ──────────────────────────────────────────────────────────
 //     P2 视图 unit = (oc*120 + row)*32 + u，row = tile_r*5 + i
 //     一个 oc 一行 5 B = 正好 1 个 unit；行间 unit 差 32 → bank+2、addr+5(进位+1)
+//     跨 oc unit += 3840，3840 % 6 == 0 → bank 不变、addr +640
 //===========================================================================
 `timescale 1ns/1ps
 
@@ -96,9 +101,9 @@ module conv_l1 #(
 
     reg [2:0] st;
     reg [1:0] ch;
-    reg [2:0] oc;
+    reg [3:0] oc;       // pw：**正在"喂"的 oc = 组号 g**（软件流水，0..COUT+1）
     reg [4:0] c;        // dw 计数器
-    reg [4:0] pc;       // pw 计数器 0..13
+    reg [4:0] pc;       // pw：**组内位置 m**（0..4，每 5 拍起一个 oc）
     reg [1:0] pw_cin;
 
     wire pw_mode = (st == S_PW);
@@ -147,7 +152,7 @@ module conv_l1 #(
     //   ★ 顺带消掉一个 EFX-0657 隐患：pacc 原来读写下标全是常数，会被工具判成
     //     logic memory 去 bit-blast（随后在数据库里崩）。
     //------------------------------------------------------------------
-    wire acc_en_pw = (st == S_PW) && (pc >= 5'd1) && (pc <= 5'd3);
+    wire acc_en_pw = (st == S_PW) && (oc < COUT[3:0]) && (pc >= 5'd1) && (pc <= 5'd3);
 
      reg  [17:0] pe_lb [0:99];
     wire [35:0] pe_out [0:99];
@@ -156,6 +161,7 @@ module conv_l1 #(
     pe_10_10 #(.KERNEL_SIZE(3)) u_pe (
         .clk(clk), .rstn(rstn), .op(fm_op),
         .acc_en_pw(acc_en_pw),          // ★ pw 相位的累加使能（dw 相位被 !op 屏蔽）
+        .acc_clr(1'b0),                 // 本版仍用 acc_en_pw 窗口起累加，暂不用 acc_clr
         .right_a_in_last_line(fm_right),
         .buttom_a_in_last_line(fm_buttom),
         .load_a_in(fm_la),
@@ -179,7 +185,8 @@ module conv_l1 #(
     wire [7:0] pl_dout [0:24];
     // ★ conv_cmp4_tree 是"真两级流水"（第二级取上一拍的 p_lo/p_hi），
     //   所以 en 必须**连续两拍**，只给一拍第二级推不动（会一直保持旧值）
-    wire       pl_en = (st == S_PW) && ((pc == 5'd8) || (pc == 5'd9));
+    wire       pl_en = (st == S_PW) && ((pc == 5'd3) || (pc == 5'd4)) &&
+                       (oc >= 4'd1) && (oc <= COUT[3:0]);
 
     conv_pool_arr #(.ROWS(5), .COLS(5)) u_pool (
         .clk(clk), .rstn(rstn), .en(pl_en),
@@ -228,14 +235,14 @@ module conv_l1 #(
 
     reg  [2:0]  wbank;
     reg  [12:0] waddr;
-    wire [3:0]  wi = pc[3:0] - 4'd10;      // 写回行号 0..4
+    wire [2:0]  wrow = pc[2:0];            // 写回行号 0..4（= 组内位置 m）
 
     //------------------------------------------------------------------
     // 主状态机
     //------------------------------------------------------------------
     always @(posedge clk) begin
         if (!rstn) begin
-            st <= S_IDLE; ch <= 2'd0; oc <= 3'd0; c <= 5'd0; pc <= 5'd0;
+            st <= S_IDLE; ch <= 2'd0; oc <= 4'd0; c <= 5'd0; pc <= 5'd0;
             pw_cin <= 2'd0;
             win_req <= 1'b0; win_ch <= 2'd0;
             fm_wdata_en <= 1'b0; fm_op <= 1'b0; fm_start <= 1'b0;
@@ -265,9 +272,12 @@ module conv_l1 #(
                     done <= 1'b0;
                     busy <= 1'b1;
                     ch   <= 2'd0;
-                    oc   <= 3'd0;
+                    oc   <= 4'd0;
                     obank <= tb_bank;       // 整块基底只在这里算一次
-                    oaddr <= tb_addr;
+                    // ★ 软件流水下 oaddr 是"写回"用的基底，比正在喂的 oc 落后 2 组
+                    //   （第 g 组写回 oc-2），所以从 base(-1) = tb_addr - 640 起算；
+                    //   前两组的写回本来就是无效的（oc<2 不写）。
+                    oaddr <= tb_addr - 13'd640;
                     fm_op <= 1'b1;      // 复用模式；不发 start 时阵列是"关闭"状态
                     st   <= S_WREQ;
                 end
@@ -306,7 +316,7 @@ module conv_l1 #(
                     for (p = 0; p < 100; p = p + 1)
                         dwc[ch][p] <= quant36(pe_out[p]);
                     if (ch == CIN[1:0] - 2'd1) begin
-                        oc <= 3'd0;
+                        oc <= 4'd0;
                         pc <= 5'd0;
                         fm_op <= 1'b0;          // 转直接相乘模式
                         st <= S_PW;
@@ -318,70 +328,99 @@ module conv_l1 #(
             end
 
             //----------------------------------------------------
-            // pw 相位：每个 oc 15 拍（pc=0..14）
-            //   实测关系：peo(k) = A(k-2)*B(k-2)
-            //     A(k) = input_reg_a[0](k) = feature_map(k-1) = 载入值(k-2)
-            //     B(k) = input_reg_b(k)   = load_b_in(k-1)
-            //   所以：a 经 wdata_en 在 pc=1,2,3 载入（pw_cin 滞后一拍给 dwc[0..2]）
-            //         b 在 pc=2,3,4 呈现 w_pw[oc*3+0..2]
-            //         → 3 个乘积在 pc=5,6,7 到
+            // pw 相位：**软件流水**，每 5 拍起一个 oc，3 个 oc 同时在飞
+            //
+            //   原来一个 oc 独占 15 拍、8 个 oc 串起来 = 120 拍。但一个 oc 的 15 拍里
+            //   各阶段用的**资源互不重叠**：
+            //       "格"内 pc=1..4 : feature_map / DSP / acc （喂 a、喂 b、乘积、累加）
+            //       "格"内 pc=7..9 : qq / 池化树              （量化、两级池化）
+            //       "格"内 pc=10..14: plane 写口              （写回 5 行）
+            //   所以把相邻 oc 的起点从 15 拍提前到 **5 拍**，三个 oc 错开叠起来跑，
+            //   每个 oc 的"格"仍是 15 拍、内部相对时序**一拍不改**。令：
+            //       oc = 组号 g（正在"喂"的那个 oc）
+            //       pc = 组内位置 m（0..4）
+            //   oc 的 pc=0..14 映射到 (组, m)：pc=0..4 → 组 oc；pc=5..9 → 组 oc+1；
+            //   pc=10..14 → 组 oc+2。于是第 g 组第 m 拍同时干三件事
+            //   （作用在不同 oc、不同资源上，互不冲突）：
+            //       m=0 : 喂 oc 的 a=dwc0/b=w0 起头 ; acc 累加 oc-1 的 p2 ; 写回 oc-2 row0
+            //       m=1 : 喂 oc 的 a=dwc1/b=w1      ; acc 累加 oc-1 的 p3 ; 写回 oc-2 row1
+            //       m=2 : 喂 oc 的 a=dwc2/b=w2      ; 量化 oc-1 -> qq     ; 写回 oc-2 row2
+            //       m=3 : 喂 oc 的 b=w2（收尾）      ; 池化 en 第1拍 oc-1   ; 写回 oc-2 row3
+            //       m=4 : acc 装载 oc 的 p1          ; 池化 en 第2拍 oc-1   ; 写回 oc-2 row4
+            //   共 COUT+2 = 10 组 × 5 拍 = **50 拍**（原来 120 拍）。
+            //
+            //   ★ 为什么是 5 拍、不能再快：plane 写口 1 unit/拍，一个 oc 要写 5 个
+            //     unit（5 行），所以相邻 oc 的写回至少要隔 5 拍；而且 oc-2 的写回要
+            //     读完 pl_dout（5 拍）之后，oc-1 的新池化结果才能覆盖它（否则 row4
+            //     会被冲掉）。5 拍正好把写口打满 —— 这是本设计的**硬下限**。
+            //     8 个 oc × 5 unit = 40 unit ⇒ 无论如何不可能低于 40 拍。
             //----------------------------------------------------
             S_PW: begin
-                pc <= pc + 5'd1;
+                // ---- 组内位置推进：m 0..4 循环，绕回时组号（= 正在喂的 oc）+1 ----
+                if (pc == 5'd4) begin
+                    pc <= 5'd0;
+                    oc <= oc + 4'd1;
+                end else begin
+                    pc <= pc + 5'd1;
+                end
 
-                // (1) 呈 a 数据：经 wdata_en 装进左上 10×10（pc=1,2,3 载入）
-                if (pc <= 5'd2) begin
+                // (1) 喂 a：m=0,1,2 置 wdata_en/pw_cin → m=1,2,3 各载入一次 dwc[pw_cin]
+                if ((oc < COUT[3:0]) && (pc <= 5'd2)) begin
                     fm_wdata_en <= 1'b1;
                     pw_cin      <= pc[1:0];
                 end else begin
                     fm_wdata_en <= 1'b0;
                 end
 
-                // (2) 呈 b 数据：pc=2,3,4 上分别是 w_pw[oc*3+0..2]
-                if ((pc >= 5'd1) && (pc <= 5'd3))
+                // (2) 喂 b：m=1,2,3 → lb 在 m=2,3,4 上是 w_pw[oc*3+0..2]
+                //   ★ 必须卡 oc < COUT：否则 oc=8,9 会越界读 w_pw[24..26]（只有 0..23）
+                if ((oc < COUT[3:0]) && (pc >= 5'd1) && (pc <= 5'd3))
                     for (p = 0; p < 100; p = p + 1)
                         pe_lb[p] <= w_pw[oc*3 + pc - 5'd1];
 
-                // (3) 量化：3 个乘积的和已经由 PE 内部累加器算好
-                //     （acc_en_pw 在 pc=1,2,3 拉高 → acc 在 pc=7 = p1+p2+p3）
-                if (pc == 5'd7)
+                // (3) 量化 oc-1：m=2（对应 oc-1 的 pc=7，此时 pe_out = p1+p2+p3，
+                //     PE 内部累加器已经算好；acc_en_pw 窗口由"喂 oc-1 的 m=1,2,3"推出）
+                //   ★ 这一级 quant24 不能省：qq / conv_cmp4_tree / conv_pool_arr
+                //     全是 8bit，直接塞未量化的和会变成"低 8 位回绕"，池化取 max
+                //     就失去意义了。量化必须在这里做，或者（等价的）搬到池化之后
+                //     并把整条池化通路按原始和宽度加宽。
+                if ((pc == 5'd2) && (oc >= 4'd1) && (oc <= COUT[3:0]))
                     for (p = 0; p < 100; p = p + 1)
                         qq[p] <= quant24(pe_out[p][23:0]);
 
-                // (4) 池化：pl_en 连续两拍（真两级流水），pc=10 出结果
+                // (4) 池化 oc-1：pl_en 连续两拍（真两级流水；m=3,4 ↔ oc-1 的 pc=8,9），
+                //     于是 oc-1 的池化结果在**下一组的 m=0** 就绪，正好赶上它的写回。
+                //   ★ 必须卡 oc <= COUT：最后一组 oc=COUT+1 对应的 oc-1 = COUT 是无效
+                //     oc，放任它 pl_en 会在 oc-1=COUT-1 的 row4 写回当拍冲掉 pl_dout。
 
-                // (5) 写回：pc=10..14，每拍一行 5 B
-                if ((pc >= 5'd10) && (pc <= 5'd14)) begin
+                // (5) 写回 oc-2：m=0..4，每拍一行 5 B（写口 1 unit/拍，正好打满）
+                if (oc >= 4'd2) begin
                     p2_wr_en   <= 1'b1;
-                    p2_wr_data <= { pl_dout[wi*5 + 4], pl_dout[wi*5 + 3],
-                                    pl_dout[wi*5 + 2], pl_dout[wi*5 + 1],
-                                    pl_dout[wi*5 + 0] };
+                    p2_wr_data <= { pl_dout[wrow*5 + 4], pl_dout[wrow*5 + 3],
+                                    pl_dout[wrow*5 + 2], pl_dout[wrow*5 + 1],
+                                    pl_dout[wrow*5 + 0] };
                     p2_wr_bank <= wbank;
                     p2_wr_addr <= waddr;
                     for (p = 0; p < 25; p = p + 1) pool_q[p] <= pl_dout[p];
-                    pool_oc    <= oc;
+                    pool_oc    <= oc - 4'd2;
                     pool_vld   <= 1'b1;
                 end
 
-                // (6) 写回地址递推：unit 每行 +32 → bank+2、addr+5(+1 进位)
-                if (pc == 5'd9) begin
+                // (6) 写回地址：m=4 装载"下一个写回 oc"（= 本组 oc-1）的基底，
+                //     m=0..3 做行间递推（unit 每行 +32 → bank+2、addr+5，进位再 +1）。
+                //     跨 oc：unit += 120*32 = 3840，3840 % 6 == 0 ⇒ bank 不变、addr +640。
+                //   ★ m=4 同时"用"waddr 写 row4 和"改"waddr：非阻塞赋值，各取所需。
+                if (pc == 5'd4) begin
                     wbank <= obank;
                     waddr <= oaddr;
-                end else if ((pc >= 5'd10) && (pc <= 5'd13)) begin
+                    oaddr <= oaddr + 13'd640;
+                end else begin
                     wbank <= ((wbank + 3'd2) >= 3'd6) ? (wbank + 3'd2 - 3'd6) : (wbank + 3'd2);
                     waddr <= ((wbank + 3'd2) >= 3'd6) ? (waddr + 13'd6) : (waddr + 13'd5);
                 end
 
-                // (7) 下一个 oc：unit 基底 +3840 → bank 不变、addr +640
-                if (pc == 5'd14) begin
-                    oaddr <= oaddr + 13'd640;
-                    if (oc == COUT[2:0] - 3'd1) begin
-                        st <= S_DONE;
-                    end else begin
-                        oc <= oc + 3'd1;
-                        pc <= 5'd0;
-                    end
-                end
+                // (7) 最后一组（oc = COUT+1）排空完 → done
+                if ((pc == 5'd4) && (oc == COUT[3:0] + 4'd1)) st <= S_DONE;
             end
 
             //----------------------------------------------------
