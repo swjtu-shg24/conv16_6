@@ -59,6 +59,7 @@ module pe_10_10_tb;
   reg clk;
   reg rstn;
   reg op;
+  reg acc_en_pw;
   reg  [17:0] wdata[0:143];
   reg         wdata_en;
   wire [17:0] right_a_in_last_line[0:9];
@@ -88,6 +89,7 @@ module pe_10_10_tb;
     .clk(clk),
     .rstn(rstn),
     .op(op),
+    .acc_en_pw(acc_en_pw),
     .right_a_in_last_line(right_a_in_last_line),
     .buttom_a_in_last_line(buttom_a_in_last_line),
     .load_a_in(load_a_in),
@@ -107,7 +109,7 @@ always #10  clk = ! clk ;
   //-------------------------------------------------------------------------
   integer i;
 initial begin
-  clk=1'b0;rstn=1'b0;op=1;
+  clk=1'b0;rstn=1'b0;op=1;acc_en_pw=1'b0;
   for (i=0; i<100;i=i+1)begin
     load_b_in[i]=18'd1;
   end
@@ -161,21 +163,21 @@ initial begin
 
   //================ 插入周期的不复用乘法 
   @(posedge clk)begin
-    op=0;
+    op=0;acc_en_pw=1'b1;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+3;
   end
   end
     @(posedge clk)begin
-    op=0;
+    op=0;acc_en_pw=1'b1;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+4;
   end
   end
     @(posedge clk)begin
-    op=0;
+    op=0;acc_en_pw=1'b0;//不累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+5;
@@ -203,42 +205,42 @@ initial begin
 
   //================ 直接乘法 
    @(posedge clk)begin
-    op=0;
+    op=0;acc_en_pw=1'b1;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+7;
   end
    end
       @(posedge clk)begin
-    op=0;
+    op=0;acc_en_pw=1'b1;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+8;
   end
    end
       @(posedge clk)begin
-    op=0;
+    op=0;acc_en_pw=1'b1;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+9;
   end
    end
       @(posedge clk)begin
-    op=0;
+    op=0;acc_en_pw=1'b1;//累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+10;
   end
    end
       @(posedge clk)begin
-    op=0;
+    op=0;acc_en_pw=1'b0;//不累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+11;
   end
    end
       @(posedge clk)begin
-    op=0;
+    op=0;acc_en_pw=1'b0;//不累加
     wdata_en<=1'b1;
     for (i=0; i<FM_N;i=i+1)begin
     wdata[i]<=i+12;

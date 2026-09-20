@@ -17,9 +17,12 @@
 //     而 a 通道比 b 通道多一级（feature_map 寄存器 → input_reg_a[0]），
 //       实测 peo[k] = wdata(k-4) * load_b_in(k-3)：
 //       所以 a 在 pc 拍呈上、b 在 pc+1 拍呈上。
-//     PE 在直接相乘模式下**不累加**（acc<=dsp_o），所以累加在阵列外做 pacc[0:99]。
-//     每个 oc 用 14 拍：pc=0..2 呈 a（cin=pc）、pc=1..3 呈 b、pc=4..6 累加/量化、
-//                      pc=7 起池化（两级流水）、pc=9..13 写回 5 行
+//     ★ 3 个通道的乘积和现在由 **PE 内部累加器** 算（acc_en_pw），阵列外不再有 pacc。
+//       acc_en_pw 在 pc=1,2,3（= 逐拍喂 w_pw[oc*3+0..2] 的 3 拍）拉高，
+//       PE 内部的 2 级"与"把它后移 3 拍 → 累加正好落在 pc=5、pc=6，
+//       于是 pc=7 的 pe_out 就是 p1+p2+p3（见下面 acc_en_pw 处的推导）。
+//     每个 oc 用 15 拍：pc=0..2 呈 a（cin=pc）、pc=1..3 呈 b（同时 acc_en_pw）、
+//                      pc=7 量化、pc=8..9 池化（两级流水）、pc=10..14 写回 5 行
 //
 //   ── 写回 ──────────────────────────────────────────────────────────
 //     P2 视图 unit = (oc*120 + row)*32 + u，row = tile_r*5 + i
@@ -123,12 +126,36 @@ module conv_l1 #(
         .input_en(fm_ien)
     );
 
+    //------------------------------------------------------------------
+    // ★ 点卷积（op=0）的累加搬进 PE 内部，阵列外不再有 pacc[0:99]
+    //
+    //   pe.v 里： acc_en = (op_reg[2] && !load_a_in_opt_reg[1])        ← 复用(dw)模式
+    //                    || (acc_en_pw_reg[2] & acc_en_pw_reg[3]);    ← 直接相乘(pw)模式
+    //   而 acc_en_pw_reg 是 (acc_en_pw && !op) 的 4 级移位寄存器，把第 2、3 级
+    //   "与"起来 = 累加窗口相对 acc_en_pw 的拉高窗口 **后移 3 拍、少 1 拍**：
+    //        acc_en_pw 从 pc=a 起拉高 N 拍  →  acc_en 在 pc = a+4 .. a+N+2 有效（N-1 拍）
+    //   实测（tb_l1）：dsp_o 上第 1/2/3 个乘积分别落在 pc=4/5/6，所以
+    //        pc=4 必须"不累加" → acc 被 dsp_o 装载成第 1 个乘积
+    //                              （顺带清掉上一个 oc 的残值，不需要额外复位）
+    //        pc=5、pc=6 必须累加 → pc=7 的 acc = p1+p2+p3
+    //   反推：acc_en_pw 要在 **pc=1、2、3** 拉高 —— 正好就是逐拍喂
+    //         w_pw[oc*3+0..2] 的那 3 拍，语义上也最自然。
+    //   ★ 必须**先声明再用**：vlog 会把提前出现的标识符当隐式 net，
+    //     然后在正式声明处报 (vlog-2388) already declared。
+    //   ★ op=0 时 op_reg[2] 那一项是 0，dw 相位 op=1 时 (acc_en_pw && !op)=0，
+    //     两条通路互不干扰。
+    //   ★ 顺带消掉一个 EFX-0657 隐患：pacc 原来读写下标全是常数，会被工具判成
+    //     logic memory 去 bit-blast（随后在数据库里崩）。
+    //------------------------------------------------------------------
+    wire acc_en_pw = (st == S_PW) && (pc >= 5'd1) && (pc <= 5'd3);
+
      reg  [17:0] pe_lb [0:99];
     wire [35:0] pe_out [0:99];
     wire        pe_otype, pe_oen;
 
     pe_10_10 #(.KERNEL_SIZE(3)) u_pe (
         .clk(clk), .rstn(rstn), .op(fm_op),
+        .acc_en_pw(acc_en_pw),          // ★ pw 相位的累加使能（dw 相位被 !op 屏蔽）
         .right_a_in_last_line(fm_right),
         .buttom_a_in_last_line(fm_buttom),
         .load_a_in(fm_la),
@@ -185,13 +212,6 @@ module conv_l1 #(
     endfunction
 
     //------------------------------------------------------------------
-    // 外部累加器（PE 在直接相乘模式下不累加）
-    //   ★ syn_ramstyle="registers"：这几个数组读写下标全是常数，不加属性会被
-    //     EFX-0657 判成 logic memory 去 bit-blast（工具随后在数据库里崩）
-    //------------------------------------------------------------------
-     reg  signed [23:0] pacc [0:99];
-
-    //------------------------------------------------------------------
     // 写回地址：unit = (oc*120 + tile_r*5 + i)*32 + tile_c
     //
     //   ★ 200 MHz 优化：oc 每 +1，unit 增加 120*32 = 3840，而 3840 % 6 == 0，
@@ -226,7 +246,6 @@ module conv_l1 #(
             obank <= 3'd0; oaddr <= 13'd0;
             for (p = 0; p < 100; p = p + 1) begin
                 pe_lb[p] <= 18'd0;
-                pacc[p]  <= 24'sd0;
                 qq[p]    <= 8'd0;
             end
             for (p = 0; p < 25; p = p + 1) pool_q[p] <= 8'd0;
@@ -323,14 +342,11 @@ module conv_l1 #(
                     for (p = 0; p < 100; p = p + 1)
                         pe_lb[p] <= w_pw[oc*3 + pc - 5'd1];
 
-                // (3) 累加 / 量化（乘积在 pc=5,6,7 到）
-                if (pc == 5'd5)
-                    for (p = 0; p < 100; p = p + 1) pacc[p] <= $signed(pe_out[p][23:0]);
-                else if (pc == 5'd6)
-                    for (p = 0; p < 100; p = p + 1) pacc[p] <= pacc[p] + $signed(pe_out[p][23:0]);
-                else if (pc == 5'd7)
+                // (3) 量化：3 个乘积的和已经由 PE 内部累加器算好
+                //     （acc_en_pw 在 pc=1,2,3 拉高 → acc 在 pc=7 = p1+p2+p3）
+                if (pc == 5'd7)
                     for (p = 0; p < 100; p = p + 1)
-                        qq[p] <= quant24(pacc[p] + $signed(pe_out[p][23:0]));
+                        qq[p] <= quant24(pe_out[p][23:0]);
 
                 // (4) 池化：pl_en 连续两拍（真两级流水），pc=10 出结果
 

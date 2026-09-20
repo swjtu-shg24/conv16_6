@@ -22,6 +22,8 @@
 //                                                              所以"只采一次 b"的实现必然对不上)
 //   T5 直接相乘      op=0，a[i]=i+1，b[i]=i+2              -> peo[i] = a[i]*b[i]
 //   T6 直接相乘流水  op=0，a≡1，b 逐拍 +1                   -> 1 拍 1 个乘积，并量出流水延迟
+//   T7 直接相乘累加  op=0 + acc_en_pw（**照 conv_l1 的 pw 相位驱动**）
+//                     -> pc=7 的 peo = a0*w0 + a1*w1 + a2*w2（3 个乘积在 PE 内部累加）
 //===========================================================================
 `timescale 1ns/1ps
 module tb_pe_rules;
@@ -33,6 +35,7 @@ module tb_pe_rules;
   localparam integer NCAP = 20;           // 每个用例抓 20 拍
 
   reg  clk, rstn, op, wdata_en, start;
+  reg         acc_en_pw;                  // ★ op=0 时的 PE 内部累加使能
   reg  [17:0] wdata [0:FMN-1];
   reg  [17:0] lb    [0:N-1];
 
@@ -57,6 +60,7 @@ module tb_pe_rules;
 
   pe_10_10 u_pe (
     .clk(clk), .rstn(rstn), .op(op),
+    .acc_en_pw(acc_en_pw),
     .right_a_in_last_line(right_a_in_last_line),
     .buttom_a_in_last_line(buttom_a_in_last_line),
     .load_a_in(load_a_in), .load_b_in(lb),
@@ -81,10 +85,16 @@ module tb_pe_rules;
   integer BPAT [0:8];
   integer t, i, k, r, c, di, dj, s, d;
 
+  // ---- T7 用 ----
+  reg  [17:0] t7_a0 [0:N-1];
+  reg  [17:0] t7_a1 [0:N-1];
+  reg  [17:0] t7_a2 [0:N-1];
+  reg  [17:0] t7_w  [0:2];
+
   task automatic do_reset;
     integer tt;
     begin
-      rstn = 1'b0; op = 1'b0; wdata_en = 1'b0; start = 1'b0;
+      rstn = 1'b0; op = 1'b0; wdata_en = 1'b0; start = 1'b0; acc_en_pw = 1'b0;
       for (tt = 0; tt < FMN; tt = tt + 1) wdata[tt] = 18'd0;
       for (tt = 0; tt < N;   tt = tt + 1) lb[tt]    = 18'd0;
       repeat (6) @(negedge clk);
@@ -303,6 +313,64 @@ module tb_pe_rules;
     for (t = 0; t < NCAP; t = t + 1) $write(" %0d", cap[t][0]);
     $write("\n      b0    逐拍:");
     for (t = 0; t < NCAP; t = t + 1) $write(" %0d", capb[t]);
+    $write("\n");
+
+    //=====================================================================
+    // T7 直接相乘 + PE 内部累加（op=0 + acc_en_pw）
+    //     完全照 conv_l1 的 pw 相位驱动（一个 oc 的若干拍）：
+    //       pc=1,2,3 : wdata_en=1，依次把 a0/a1/a2 装进左上 10x10
+    //       pc=1,2,3 : acc_en_pw=1（正好是"逐拍喂 w_pw[0..2]"的那 3 拍）
+    //       pc=2,3,4 : lb = w0/w1/w2
+    //       pc=7     : peo 必须 = a0*w0 + a1*w1 + a2*w2
+    //     pe.v 里 acc_en_pw_reg[2]&[3] 把这 3 拍窗口**后移 3 拍**，
+    //     于是累加正好落在 pc=5、pc=6（dsp_o 上第 2、3 个乘积到达拍）。
+    //=====================================================================
+    $display("\n---- T7 直接相乘 + PE 内部累加（op=0 + acc_en_pw）----");
+    do_reset;
+    for (i = 0; i < N; i = i + 1) begin
+      t7_a0[i] = i + 1;
+      t7_a1[i] = i + 101;
+      t7_a2[i] = i + 201;
+      expv[i]  = (i+1)*3 + (i+101)*5 + (i+201)*7;
+    end
+    t7_w[0] = 3; t7_w[1] = 5; t7_w[2] = 7;
+
+    for (t = 0; t < NCAP; t = t + 1) begin
+      @(negedge clk);
+      // ---- 本拍（= conv_l1 的 pc=t）的驱动 ----
+      op        = 1'b0;
+      start     = 1'b0;
+      acc_en_pw = ((t >= 1) && (t <= 3));
+      wdata_en  = ((t >= 1) && (t <= 3));
+      for (k = 0; k < FMN; k = k + 1) wdata[k] = 18'd0;
+      if ((t >= 1) && (t <= 3))
+        for (r = 0; r < 10; r = r + 1)
+          for (c = 0; c < 10; c = c + 1)
+            wdata[r*FMW + c] = (t == 1) ? t7_a0[r*10 + c] :
+                               (t == 2) ? t7_a1[r*10 + c] : t7_a2[r*10 + c];
+      for (k = 0; k < N; k = k + 1)
+        lb[k] = (t == 2) ? t7_w[0] :
+                (t == 3) ? t7_w[1] :
+                (t == 4) ? t7_w[2] : 18'd0;
+      // ---- 采样本拍的 peo ----
+      for (k = 0; k < N; k = k + 1) cap[t][k] = peo[k];
+    end
+    op = 1'b0; acc_en_pw = 1'b0; wdata_en = 1'b0;
+
+    s = 0;
+    for (k = 0; k < N; k = k + 1)
+      if (cap[7][k] == expv[k]) s = s + 1;
+    if (s == N) begin
+      $display("  [T7 op=0 internal acc] PASS  (pc=7 的 100 个 lane 全 = a0*w0+a1*w1+a2*w2)");
+      checks = checks + 1;
+    end else begin
+      $display("  [T7 op=0 internal acc] FAIL  pc=7 只匹配 %0d/100", s);
+      errs = errs + 1;
+      for (k = 0; k < 6; k = k + 1)
+        $display("        lane %0d: got %0d   exp %0d", k, cap[7][k], expv[k]);
+    end
+    $write("      peo[0] 逐拍(pc=0..%0d):", NCAP-1);
+    for (t = 0; t < NCAP; t = t + 1) $write(" %0d", cap[t][0]);
     $write("\n");
 
     //=====================================================================

@@ -116,7 +116,7 @@ w -radix unsigned u_top/win_ch
 w u_top/u_l1/fm_op
 w u_top/u_l1/fm_start
 w u_top/u_l1/fm_wdata_en
-w -radix hex {u_top/u_l1/fm_wdata[0]}
+w -radix hex {u_top/u_l1/fm_wdata}
 w -radix hex {u_top/u_l1/pe_lb[0]}
 w -radix hex {u_top/u_l1/pe_out[0]}
 w -radix unsigned {u_top/u_l1/dwc[0][0]}
@@ -129,7 +129,8 @@ w -radix unsigned u_top/u_l1/oc
 w -radix unsigned u_top/u_l1/pc
 w -radix unsigned u_top/u_l1/pw_cin
 w -radix hex {u_top/u_l1/pe_out[0]}
-w -radix dec {u_top/u_l1/pacc[0]}
+w u_top/u_l1/acc_en_pw
+w -radix dec {u_top/u_l1/u_pe/pe_gen[0]/pe_inst/acc}
 w -radix unsigned {u_top/u_l1/qq[0]}
 w u_top/u_l1/pl_en
 w -radix unsigned {u_top/u_l1/pool_q[0]}

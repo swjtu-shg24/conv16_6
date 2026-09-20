@@ -87,7 +87,7 @@ unit 总数 = 8*120*32 = 30,720  →  bank = unit mod 6, addr = unit/6 ∈ [0,51
 
 ---
 
-## PE 阵列的使用契约（由 `rtl/pe10_10/tb_pe_rules.v` 仿真实测钉死，7/7 PASS）
+## PE 阵列的使用契约（由 `rtl/pe10_10/tb_pe_rules.v` 仿真实测钉死，8/8 PASS）
 
 | # | 结论 |
 |---|---|
@@ -96,8 +96,9 @@ unit 总数 = 8*120*32 = 30,720  →  bank = unit mod 6, addr = unit/6 ∈ [0,51
 | F3 | 窗口搬运顺序（对 PE(r,c)）= 光栅序：`win[r][c],win[r][c+1],win[r][c+2],win[r+1][c],…,win[r+2][c+2]` |
 | F4 | **b 逐拍采样**：tap `m` 用的权重 = `load_b_in` 在第 `m` 拍被采样的值（即 `t0+m` 那一拍采） |
 | F5 | 关闭阵列（`op=1` 不发 `start`）→ 100 个 `peo` 恒为 0 |
-| F6 | 直接相乘（`op=0`）：`load_b_in` → `peo` = **3 拍**，1 拍 1 个乘积，**PE 内部不累加** → pw 必须在阵列外做 `pacc[0:99]` |
+| F6 | 直接相乘（`op=0`）：`load_b_in` → `peo` = **3 拍**，1 拍 1 个乘积；**`acc_en_pw=0` 时不累加**（`acc <= dsp_o`，每拍被乘积装载） |
 | F7 | `pe_10_10` 把 48bit `PE_output` 截成 36bit；本设计数据 8bit → ≤2^19，安全 |
+| F8 | 直接相乘要**内部累加**：拉高 `acc_en_pw`。但 PE 里取的是 `acc_en_pw_reg[2] & acc_en_pw_reg[3]`（两级"与"，`acc_en_pw_reg` 是 `acc_en_pw&&!op` 的 4 级移位寄存器）→ 累加窗口比拉高窗口**后移 3 拍、少 1 拍**：拉高 N 拍只有 N-1 拍累加 |
 
 ### L1 dw 相位的实测时序（`conv_l1` 直接照这个写，不要猜）
 
@@ -124,14 +125,20 @@ unit 总数 = 8*120*32 = 30,720  →  bank = unit mod 6, addr = unit/6 ∈ [0,51
 |---|---|
 | `0..2` | `fm_wdata_en<=1`、`pw_cin<=pc` → 于是 **pc=1,2,3 各载入一次** `dwc[pw_cin]`（`pw_cin` 寄存后滞后一拍） |
 | `1..3` | `pe_lb <= w_pw[oc*3 + pc-1]` → lb 在 **pc=2,3,4** 分别是 `w_pw[oc*3+0..2]` |
-| `5` | `pacc <= peo`（第 1 个乘积） |
-| `6` | `pacc <= pacc + peo`（第 2 个） |
-| `7` | `qq <= quant(pacc + peo)`（第 3 个，边加边量化） |
+| `1..3` | **`acc_en_pw=1`** —— 正好是"逐拍喂 `w_pw[oc*3+0..2]`"的那 3 拍 |
+| `4` | `acc_en` 无效 → `acc` 被 `dsp_o` 装载成**第 1 个乘积**（顺带清掉上一个 oc 的残值，不需要额外复位） |
+| `5,6` | PE 内部 `acc <= acc + dsp_o`（第 2、3 个乘积到达） |
+| `7` | `qq <= quant(peo)` —— **`peo` 就是 p1+p2+p3**（阵列外不再有 `pacc`） |
 | `8..9` | `pl_en=1` **连续两拍** |
 | `10..14` | 写回 5 行 |
 
 推导依据（实测）：`peo(k) = A(k-2)*B(k-2)`，其中 `A(k)`（即 `input_reg_a[0]`）= `feature_map(k-1)` = **载入值(k-2)**，
 `B(k)`（即 `input_reg_b`）= `load_b_in(k-1)`。所以 a 走 `wdata_en` 比 b 多一级流水，两者的"拍"必须错开。
+
+**累加搬进 PE**（原来在阵列外做 `pacc[0:99]`）：`dsp_o` 上第 1/2/3 个乘积落在 **pc=4/5/6**，
+所以只需要"pc=4 不累加、pc=5/6 累加"，反推 `acc_en_pw` 要在 **pc=1,2,3** 拉高（见 F8 的"后移 3 拍、少 1 拍"）。
+结果是 pc=7 的 `peo` = p1+p2+p3，与原来的 `pacc + peo` 拍号完全一致 → 改动逐位等价
+（`tb_board` 校验和仍是 `c2eaf2eaaf`）。契约由 `tb_pe_rules` 的 **T7** 钉死。
 
 ★ **关键**：`feature_map_12_12` 的 `load_a_in` 只能来自它内部的 `feature_map[]`，
 所以直接相乘的 a 数据**必须经 `wdata_en` 装进 12×12 图的左上 10×10**（这就是"放在左上区域"的真正含义）。
@@ -202,7 +209,7 @@ rtl\conv2\run_wave.bat small
 | 3 | `conv_band12` | `b_wr_*` / `b_rd_*`（bank/addr/data） |
 | 4 | `conv_win_load` 窗口装配 | `st/r/slot_q/slot_eff/rd_addr_w`、`row_base_q/u0_q/bank_q/addr_off_q/chr_q`、`win_d[0..2]` |
 | 5 | dw 相位（3×3） | `st/ch/c`、`win_req/win_ch`、`fm_op/fm_start/fm_wdata_en`、`pe_lb[0]/pe_out[0]/dwc[*][0]` |
-| 6 | pw 相位（1×1+量化+池化） | `oc/pc/pw_cin`、`pacc[0]/qq[0]/pl_en/pool_q[0..2]/pool_vld/pool_oc` |
+| 6 | pw 相位（1×1+量化+池化） | `oc/pc/pw_cin/acc_en_pw`、`pe_out[0]/qq[0]/pl_en/pool_q[0..2]/pool_vld/pool_oc` |
 | 7 | 写回 plane | `u_l1/wbank/waddr/obank/oaddr`、`p2_wr_en/bank/addr/data` |
 | 8 | 调度/握手 | `u_sched/started/l1_done_p/need_next/wl_pend/pend_row`、`rows_free/l1_start/l1_done/wl_busy` |
 | 9 | 回读校验 | `p2_rd_en_r/p2_rd_bank_r/p2_rd_addr_r/p2_rd_data` |
@@ -260,11 +267,11 @@ rtl\conv2\run_wave.bat small
 | M2 | `conv_win_load`（band → 12×12 窗口，含边界反射） | ✅ |
 | M3 | `conv_in_dma`（DDR → band，16B 字节重对齐 + `rows_free` 信用） | ✅ |
 | M4 | `conv_l1` 的 dw 相位（**实测抓数拍 = `c=13`、权重喂 `w[c-1]`**） | ✅ |
-| M5 | `conv_l1` 的 pw（外部 `pacc`）+ 量化 + 池化 + 写回 | ✅ |
+| M5 | `conv_l1` 的 pw（累加在 **PE 内部**，用 `acc_en_pw`）+ 量化 + 池化 + 写回 | ✅ |
 | M6 | `conv_sched` + `conv_top`（顶层写在本层，纯结构例化）+ 端到端 `tb_top` | ✅ |
 | M7 | 整帧回归 320×240×3 → 160×120×8 + 资源/时序 | ⬜ 待写 |
 
-### 自检结果（10 个 tb 全 PASS）
+### 自检结果（11 个 tb 全 PASS）
 
 | 模块 | tb | 验什么 | 结果 |
 |---|---|---|---|
@@ -275,6 +282,7 @@ rtl\conv2\run_wave.bat small
 | `conv_win_load` | `tb_win` | 12×12 窗口逐字节；**2 个相位 × 32 个 tile_c × 3 通道 = 192 个窗口**，含上/下边界反射与左/右列反射 | **PASS** |
 | `conv_in_dma` | `tb_dma` | 240 行 DDR→band 全搬；**16B→20B 字节重对齐**；`rows_free` 信用真能挡停生产者；前 11 行 + 末 12 行共 4608 个 unit 逐字节比对 | **PASS** |
 | `conv_l1`（dw 专项） | `tb_l1_dw` | 9 个核位置单点置 1 定映射；扫 (权重偏移, 拍号) 定抓数拍；3 通道 × 100 PE 全量对拍 | **PASS** |
+| `pe_10_10` 使用契约 | `tb_pe_rules` | PE 规则 8 项；**T7 = 直接相乘 + `acc_en_pw` 内部累加**（照 `conv_l1` 的 pw 相位驱动，pc=7 的 100 个 lane = `a0*w0+a1*w1+a2*w2`） | **PASS** |
 | `conv_l1`（整片） | `tb_l1` | dw → pw → 量化 → **池化** → **写回**；8 oc × 5×5 池化结果 + plane 写口的 40 个 unit（地址 + 数据）全对 | **PASS** |
 | `conv_sched` | `tb_sched` | tile 序列（r,c）逐拍核对；`l1_start`/`wl_start`/`rows_free` 次数；等带填满才起第一个 tile；`done` | **PASS** |
 | `conv_plane` | `tb_plane` | 30,720 unit 全写全读；seg 0..9；读延迟=1 | **PASS** |
@@ -301,6 +309,8 @@ rtl\conv2\run_wave.bat small
 | 15 | **"等带填够"的门槛算错一行 → 直接死锁** | tile 行 k 最高只用到 row `10k+10`，而最后一行会被反射成 `IH-2`，所以门槛要钳到 `IH`：`min(10(k+1)+11, IH)`。写成 `10(k+1)+11` 时，最后一行永远等不到，卡在 `tile r=22 c=0` |
 | 16 | **band 的 `CPU`（每通道每行 unit 数）必须在 DMA 和 win_load 传同一个值** | 布局是 `u = slot*(3*CPU) + ch*CPU + k`，`CPU = IW/5`。整帧 IW=320 时 CPU=64 正好等于默认值所以看不出来；小图 IW=80 时 DMA 按"整行连续"写、win_load 按 `ch*64` 读 → **ch1/ch2 全读到没写过的地方（0）**。`conv_top` 必须传 `.CPU(IW/5)` 给两者 |
 | 17 | **`efx_map` 命令行空指针崩溃** | `ERROR: EXCEPTION_ACCESS_VIOLATION reading memory at (nil)`，栈固定是 `libefx.dll+0x3f333 → ucrtbase → efx_map.exe+0x19323`。**连之前跑通过的 memtest 原命令现在也崩**（同一段栈）→ 说明是**这个环境/这次会话**的问题，不是设计的锅（怀疑与一直开着的 Efinity GUI 抢资源/锁有关）。综合请走 GUI |
+| 18 | **wire 用在声明之前 → vlog 当隐式 net，正式声明处报 `(vlog-2388) already declared`** | 新加的 `wire acc_en_pw` 一开始写在 `pe_10_10` 例化**之后**，例化里先引用了一次 → 必须先声明再用（`default_nettype none` 也能提前暴露） |
+| 19 | **PE 的 `acc_en_pw` 不是"拉高即累加"** | PE 内部取的是 `acc_en_pw_reg[2] & acc_en_pw_reg[3]`（两级"与"），累加窗口比拉高窗口**后移 3 拍、少 1 拍**：拉高 N 拍只累加 N-1 拍。要累加 2 次（pc=5,6）就得拉高 3 拍（pc=1,2,3）。契约由 `tb_pe_rules` 的 **T7** 钉死 |
 
 ### 综合（GUI）当前进展与卡点
 
@@ -332,11 +342,11 @@ ERROR   : EXCEPTION_ACCESS_VIOLATION reading memory at 0x4a
 ### 已做的绕过（EFX-0657）
 
 按官方解释，EFX-0657 = **读写下标全接成常数 → 工具无法做成 BRAM，只能 bit-blast 成逻辑**，
-它同时点了 `pacc` 和 `feature_map`。已加显式属性绕开那条推断路径：
+它同时点了 `pacc`（**现已随"累加搬进 PE"整体删除**）和 `feature_map`。已加显式属性绕开那条推断路径：
 
 | 数组 | 文件 | 处理 |
 |---|---|---|
-| `pacc[0:99]` / `qq[0:99]` / `pe_lb[0:99]` | `rtl/conv2/conv_l1/conv_l1.v`（我的文件） | 直接加 `(* syn_ramstyle = "registers" *)` |
+| `dwc[0:2][0:99]` | `rtl/conv2/conv_l1/conv_l1.v`（我的文件） | 加 `(* syn_ramstyle = "registers" *)`；`pacc[0:99]` 已整体删除 |
 | `feature_map[0:143]` | **用户原件不动**；另存一份 `rtl/conv2/conv_l1/feature_map_12_12_syn.v` | 只多一行属性，**模块名保持 `feature_map_12_12`**，综合 XML 指向这一份；**仿真仍用用户原件**（属性对仿真透明） |
 
 > 若工具不认 `"registers"` 这个取值，换成 `"logic"` / `"distributed_ram"` 即可（只改这两个文件里的属性字符串）。
