@@ -1,15 +1,14 @@
 @echo off
 REM ==========================================================================
-REM  rtl\conv2\run.bat -- top-level entry (run from anywhere, it cd's first)
+REM  rtl\conv2\sim\run.bat -- top-level entry (run from anywhere, it cd's first)
 REM    1/4 full compile check of every source (library c2all)
 REM    2/4 run each module folder's own run.do (own library, own artifacts)
 REM    3/4 end-to-end: conv_top small image 80x40x3 -> 40x20x8 (tb_top)
 REM    4/4 REAL stimulus: test.jpg + real weight ROM (tb_top_real)
 REM  Verdict = the "TB_XXX RESULT: PASS/FAIL" lines printed above.
 REM ==========================================================================
-cd /d %~dp0..\..
-REM    ^ was %~dp0..\. which only went up to rtl\, but filelist.f paths are relative
-REM      to the PROJECT ROOT (rtl/conv2/...) -> it looked in rtl\rtl\conv2\. Fixed.
+cd /d %~dp0..\..\..
+REM    ^ sim -> rtl\conv2 -> rtl -> PROJECT ROOT (filelist.f paths are root-relative)
 REM -- ModelSim tools: use the local install by FULL PATH.  Bare names fail when
 REM    MODEL_TECH is unset, because vlog/vmap then look for modelsim.ini only in
 REM    the current directory (argv[0] based lookup).
@@ -38,12 +37,12 @@ for %%M in (conv_cmp4_tree conv_pool_arr conv_mem_unit conv_band12 conv_win_load
 
 echo.
 echo ============ [3/4] top-level end-to-end (tb_top small image) ============
-%VSIM% -c -do rtl/conv2/run.do
+%VSIM% -c -do rtl/conv2/sim/run.do
 
 echo.
 echo ============ [4/4] REAL stimulus: test.jpg + wrom.hex (tb_top_real) ============
 echo   need stimulus files first:  python rtl\conv2\picture_and_para\gen_stim.py
-%VSIM% -c -do rtl/conv2/run_real.do
+%VSIM% -c -do rtl/conv2/sim/run_real.do
 
 echo.
 echo ============================================================

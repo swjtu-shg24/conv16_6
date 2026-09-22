@@ -1,9 +1,9 @@
 #=============================================================================
-# rtl/conv2/wave_full.do —— 全局仿真波形布局（**按数据流顺序**分组）
+# rtl/conv2/sim/wave_full.do —— 全局仿真波形布局（**按数据流顺序**分组）
 #
-#   由 rtl/conv2/run_wave.bat 调用；也可手工：
-#       vsim -gui -voptargs=+acc -wlf rtl/conv2/wave.wlf c2all.tb_top_full \
-#            -do rtl/conv2/wave_full.do
+#   由 rtl/conv2/sim/run_wave.bat 调用；也可手工：
+#       vsim -gui -voptargs=+acc -wlf rtl/conv2/sim/wave.wlf c2all.tb_top_full \
+#            -do rtl/conv2/sim/wave_full.do
 #
 #   ★ 信号全用**相对名**，所以 tb_top（小图 80x40）和 tb_top_full（整帧 320x240）
 #     通用；某个名字对不上只会打印一行 [wave-skip]，不会中断脚本。

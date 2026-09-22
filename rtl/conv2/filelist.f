@@ -4,7 +4,8 @@
 //     vlog -work c2all -sv -timescale "1ns/1ps" +incdir+ip/bram_10kb -f rtl/conv2/filelist.f
 //
 //   平时用各模块自己的 run.do 即可（各模块 work 库互不干扰）；
-//   本文件是"顶层一次编全部"的清单，顶层模块 conv_top.v 也写在本层。
+//   本文件是"顶层一次编全部"的清单：顶层模块 conv_top.v 在本层，
+//   顶层 tb 在 tb/，仿真脚本在 sim/（详见 rtl/conv2/TOOLS.md）。
 //   +incdir+ip/bram_10kb 是必须的：bram_10kb.v 里 `include "bram_ini.vh" / "bram_decompose.vh"
 //===========================================================================
 
@@ -19,6 +20,11 @@ rtl/conv2/conv_plane/conv_plane.v
 
 // ---- 窗口 ----
 rtl/conv2/conv_win_load/conv_win_load.v
+// ---- 窗口（L2：从 L1 面读，零填充）----
+rtl/conv2/conv_win_load_plane/conv_win_load_plane.v
+
+// ---- L2 写回（tile 行结果 FIFO + 滞后一个 tile 行排空）----
+rtl/conv2/conv_wb_fifo/conv_wb_fifo.v
 
 // ---- 输入搬运 ----
 rtl/conv2/conv_in_dma/conv_in_dma.v
@@ -38,11 +44,14 @@ rtl/conv2/conv_sched/conv_sched.v
 // ---- 权重 ROM（真实权重：wrom.hex 由 picture_and_para/gen_stim.py 生成）----
 rtl/conv2/conv_wrom/conv_wrom.v
 
-// ---- 顶层（本层，纯结构例化）+ 端到端 tb ----
+// ---- 顶层（本层，纯结构例化）----
 rtl/conv2/conv_top.v
-rtl/conv2/tb_top.v
-rtl/conv2/tb_top_full.v
-rtl/conv2/tb_top_real.v
+
+// ---- 顶层端到端 tb（集中在 tb/ 子目录）----
+rtl/conv2/tb/tb_top.v
+rtl/conv2/tb/tb_top_full.v
+rtl/conv2/tb/tb_top_real.v
+rtl/conv2/tb/tb_top_l2.v
 
 // ---- BRAM 片型（生成物）+ 仿真行为模型 ----
 ip/bram_10kb/bram_10kb.v

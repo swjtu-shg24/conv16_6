@@ -47,7 +47,7 @@ module tb_win;
     reg         wl_start = 0;
     reg  [4:0]  wl_tr = 0;
     reg  [5:0]  wl_tc = 0;
-    reg  [1:0]  wl_ch = 0;
+    reg  [2:0]  wl_ch = 0;
     wire [17:0] wl_win [0:WN-1];
     wire        wl_vld, wl_busy;
 
@@ -129,7 +129,7 @@ module tb_win;
             wl_start = 1'b1;
             wl_tr = tr_[4:0];
             wl_tc = tc_[5:0];
-            wl_ch = ch_[1:0];
+            wl_ch = ch_[2:0];
             @(negedge clk);
             wl_start = 1'b0;
 

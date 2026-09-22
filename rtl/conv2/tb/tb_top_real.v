@@ -99,7 +99,7 @@ module tb_top_real;
     wire [17:0] rom_dout;
 
     conv_wrom #(.INIT_FILE("rtl/conv2/conv_wrom/wrom.hex")) u_wrom (
-        .clk(clk), .addr(7'd0), .rd_en(1'b0), .dout(rom_dout),
+        .clk(clk), .addr(9'd0), .rd_en(1'b0), .dout(rom_dout),
         .w_dw(wdw), .w_pw(wpw), .bn_a(bna), .bn_b(bnb)
     );
 

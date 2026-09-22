@@ -21,11 +21,26 @@ module conv_sched #(
     parameter integer NTILE_C   = 32,
     parameter integer ROW_STEP  = 10,    // 一个 tile 行推进的输入行数
     parameter integer IH        = 240,   // 输入面行数（用于把"需要的行数"钳到总行数）
-    parameter integer CIN       = 3      // 输入通道数 = 每个 tile 要装几个窗口
+    parameter integer CIN       = 3,     // 输入通道数 = 每个 tile 要装几个窗口
+    //===========================================================================
+    // ★★ L2 阶段（默认关闭 ⇒ 本文件对 L1 的行为**逐位不变**）★★
+    //   L2_EN=1 时：L1 的 tile 全部跑完（且 l2_go=1）之后，接着跑 L2 的 tile 网格
+    //   NTILE_R2 × NTILE_C2（L2 输入 160×120 / tile 10×10 = 12×16 = 192 个）。
+    //   L2 的窗口源是**静态的 L1 面**（不是 band），所以：
+    //     · 不需要等带填满（没有 rcnt/pend_row 门槛），跨 tile 行也直接起
+    //     · rows_free 不发（那是喂 DMA 的信用）
+    //   done 还要等写回 FIFO 排空（wb_empty），否则 tb 会在排空中途读面。
+    //===========================================================================
+    parameter integer L2_EN     = 0,
+    parameter integer NTILE_R2  = 12,
+    parameter integer NTILE_C2  = 16,
+    parameter integer CIN2      = 8
 )(
     input  wire        clk,
     input  wire        rstn,
     input  wire        start,
+    input  wire        l2_go,           // L2 相位放行（tb 用它先回读 L1 面；产品接 1）
+    input  wire        wb_empty,        // 写回 FIFO 已排空
 
     // ---- 输入带进度（来自 conv_in_dma）----
     input  wire        in_row_vld,
@@ -55,13 +70,21 @@ module conv_sched #(
 
     // ---- 状态 ----
     output reg         busy,
-    output reg         done
+    output reg         done,
+
+    // ---- L2 阶段 ----
+    output reg         cfg_l2,          // 0 = L1 相位（用 L1 权重/band 窗口）；1 = L2 相位
+    output reg         l2_run           // L2 相位"正在跑 tile"（读口归窗口装载器用）
 );
     reg [5:0] wl_pend;
     reg [8:0] rcnt;         // 已写好的行数（整帧要数到 241，必须 ≥9 bit）
     reg       started;      // start 锁存
     reg       l1_done_d;    // done 上升沿检测
     reg       pend_row;     // 跨 tile 行：等带填够
+    reg       phase;        // 0 = L1 相位；1 = L2 相位
+    reg       l2_tiles_done;// L2 的 tile 全部跑完（之后等 FIFO 排空）
+    reg       wait_l2;      // L1 跑完、L2_EN=1，但 l2_go 还没来（等 tb 回读完 L1 面）
+    reg       l2_pend;      // ★ L2 第一个 tile 的 start 延后一拍（先让 ch0_rdy 落 0）
 
     // ---- ch0 跨 tile 预取 ----
     reg [3:0] wcnt;         // 本 tile 已经装过几个窗口（只数正常请求）
@@ -78,6 +101,11 @@ module conv_sched #(
 
     wire l1_done_p = l1_done & ~l1_done_d;
 
+    // ---- 相位相关常量：phase=0（L1）时与原来**完全相同** ----
+    wire [3:0] cin_r = phase ? CIN2[3:0]   : CIN[3:0];
+    wire [5:0] ntc   = phase ? NTILE_C2[5:0] : NTILE_C[5:0];
+    wire [4:0] ntr   = phase ? NTILE_R2[4:0] : NTILE_R[4:0];
+
     //------------------------------------------------------------------
     // ★ ch0 跨 tile 预取
     //
@@ -89,18 +117,18 @@ module conv_sched #(
     //   只对"同一 tile 行的下一个 tile_c"做（tile 行内 band 的行不变，数据一定还在）；
     //   跨 tile 行要等 DMA 补带，不做预取，退回原来的"现要现等"。
     //------------------------------------------------------------------
-    wire [4:0] nxt_r = (tile_c == NTILE_C[5:0]-6'd1) ? (tile_r + 5'd1) : tile_r;
-    wire [5:0] nxt_c = (tile_c == NTILE_C[5:0]-6'd1) ? 6'd0 : (tile_c + 6'd1);
-    wire       nxt_same_row = (tile_c != NTILE_C[5:0]-6'd1);
-    wire       cur_is_last  = (tile_r == NTILE_R[4:0]-5'd1) &&
-                              (tile_c == NTILE_C[5:0]-6'd1);
+    wire [4:0] nxt_r = (tile_c == ntc-6'd1) ? (tile_r + 5'd1) : tile_r;
+    wire [5:0] nxt_c = (tile_c == ntc-6'd1) ? 6'd0 : (tile_c + 6'd1);
+    wire       nxt_same_row = (tile_c != ntc-6'd1);
+    wire       cur_is_last  = (tile_r == ntr-5'd1) &&
+                              (tile_c == ntc-6'd1);
     //   ★ 必须同时卡 !pend_row：行末 `tile_c` 会在 l1_done 那拍立刻清 0，而
     //     `tile_r` 要等 band 填够（pend_row 期间）才 +1；这段间隙里
     //     tile_c 已经是 0、tile_r 还是旧行 → `nxt_same_row` 会误判成真，
     //     于是发出一次**指向错行**的预取（真设计里等带快、间隙只有一拍才没暴露）。
     wire       issue_pre = busy && !done && !pend_row &&
                            !pre_req && !pre_pend && !pre_done &&
-                           (wcnt == CIN[3:0]) && nxt_same_row && !cur_is_last;
+                           (wcnt == cin_r) && nxt_same_row && !cur_is_last;
 
     //   ★ 冲突时**正常请求优先**：wl_start 只有一根，如果正常 win_req 和预取
     //     同拍到达，必须让正常请求先走（否则它会被当成预取、丢一次服务）。
@@ -151,6 +179,12 @@ module conv_sched #(
             pre_done  <= 1'b0;
             clr_pend  <= 1'b0;
             ch0_rdy   <= 1'b0;
+            phase     <= 1'b0;
+            cfg_l2    <= 1'b0;
+            l2_run    <= 1'b0;
+            l2_tiles_done <= 1'b0;
+            wait_l2   <= 1'b0;
+            l2_pend   <= 1'b0;
         end else begin
             l1_start  <= 1'b0;
             rows_free <= 1'b0;
@@ -194,9 +228,9 @@ module conv_sched #(
                 clr_pend <= 1'b0;
             end
 
-            // ---- 起第一个 tile：等带填够 11 行 ----
+            // ---- 起第一个 tile：等带填够 11 行（只 L1 相位）----
             if (start) started <= 1'b1;
-            if (!busy && !done && started && (rcnt >= 9'd11)) begin
+            if (!busy && !done && !phase && started && (rcnt >= 9'd11)) begin
                 busy     <= 1'b1;
                 started  <= 1'b0;
                 tile_r   <= 5'd0;
@@ -212,8 +246,8 @@ module conv_sched #(
                 clr_pend <= 1'b1;
             end
 
-            // ---- 跨 tile 行：等带真正写好下一行需要的 rows 再启动 ----
-            if (pend_row && (rcnt >= need_next[8:0])) begin
+            // ---- 跨 tile 行：等带真正写好下一行需要的 rows 再启动（只 L1 相位）----
+            if (!phase && pend_row && (rcnt >= need_next[8:0])) begin
                 pend_row <= 1'b0;
                 tile_r   <= tile_r + 5'd1;
                 tile_c   <= 6'd0;
@@ -226,14 +260,52 @@ module conv_sched #(
 
             // ---- 一个 tile 完成（取上升沿）----
             if (l1_done_p) begin
-                if (tile_c == NTILE_C[5:0] - 6'd1) begin
+                if (tile_c == ntc - 6'd1) begin
                     tile_c    <= 6'd0;
-                    rows_free <= 1'b1;              // 一个 tile 行消费完 → 多放行 10 行
-                    if (tile_r == NTILE_R[4:0] - 5'd1) begin
-                        done <= 1'b1;
-                        busy <= 1'b0;
+                    if (!phase) rows_free <= 1'b1;  // 一个 tile 行消费完 → 多放行 10 行（只 L1）
+                    if (tile_r == ntr - 5'd1) begin
+                        // ---------- 本相位最后一个 tile ----------
+                        if (!phase && (L2_EN != 0)) begin
+                            // ★ L1 跑完：L2_EN=1 时**等 l2_go**（tb 用这个间隙回读 L1 面），
+                            //   放行后接着跑 L2 的 tile 网格（窗口源换成静态的 L1 面）
+                            //   ★ l1_start **不能当拍发**：conv_l1 会在 start 那一拍采样
+                            //     ch0_rdy，而 ch0_rdy 的清除要晚一拍（原来就是为了让它在
+                            //     l1_start 那拍"仍然可见"）。若不延后，引擎会看到 L1 时代残留的
+                            //     ch0_rdy=1 → 直接进 S_DW、用**还没装载**的 win_d（x）→
+                            //     L2 第一个 tile 全错（实测症状：80 个 unit 全是 x）。
+                            if (l2_go) begin
+                                phase    <= 1'b1;
+                                cfg_l2   <= 1'b1;
+                                l2_run   <= 1'b1;
+                                tile_r   <= 5'd0;
+                                tile_c   <= 6'd0;
+                                l2_pend  <= 1'b1;   // start 延后一拍
+                                wcnt     <= 4'd0;   // L2 第一个 tile 的窗口现要（不预取）
+                                pre_done <= 1'b0;
+                                pre_pend <= 1'b0;
+                                clr_pend <= 1'b1;   // 先把 ch0_rdy 清掉
+                            end else begin
+                                wait_l2 <= 1'b1;    // busy 保持 1：本帧还没结束
+                            end
+                        end else if (phase) begin
+                            l2_tiles_done <= 1'b1;  // 由下面"等 FIFO 排空"那段收尾
+                            l2_run        <= 1'b0;
+                        end else begin
+                            done <= 1'b1;
+                            busy <= 1'b0;
+                        end
                     end else begin
-                        pend_row <= 1'b1;           // 下一行等带填够再起
+                        if (phase) begin
+                            // L2：窗口源是**静态面** → 下一 tile 行直接起，没有等带的事
+                            tile_r   <= tile_r + 5'd1;
+                            l1_start <= 1'b1;
+                            wcnt     <= ch0_rdy ? 4'd1 : 4'd0;
+                            pre_done <= 1'b0;
+                            pre_pend <= 1'b0;
+                            clr_pend <= 1'b1;
+                        end else begin
+                            pend_row <= 1'b1;       // L1：下一行等带填够再起
+                        end
                     end
                 end else begin
                     tile_c   <= tile_c + 6'd1;
@@ -243,6 +315,34 @@ module conv_sched #(
                     pre_pend <= 1'b0;      // ★ 同上
                     clr_pend <= 1'b1;
                 end
+            end
+
+            // ---- L2 收尾：tile 都跑完了，等写回 FIFO 把最后一个 tile 行排空 ----
+            //   （排空还在往面里写，必须等它空 + 最后一拍写落地，tb 才能回读）
+            if (l2_tiles_done && !done && wb_empty) begin
+                done <= 1'b1;
+                busy <= 1'b0;
+            end
+
+            // ---- 等 l2_go：L1 已跑完、L2_EN=1，放行后进 L2 相位 ----
+            if (wait_l2 && l2_go && !l2_pend) begin
+                wait_l2  <= 1'b0;
+                phase    <= 1'b1;
+                cfg_l2   <= 1'b1;
+                l2_run   <= 1'b1;
+                tile_r   <= 5'd0;
+                tile_c   <= 6'd0;
+                l2_pend  <= 1'b1;       // ★ start 延后一拍（先清 ch0_rdy）
+                wcnt     <= 4'd0;
+                pre_done <= 1'b0;
+                pre_pend <= 1'b0;
+                clr_pend <= 1'b1;
+            end
+
+            // ---- 延后的那拍：现在 ch0_rdy 已经落 0，可以安全发 L2 的第一个 start ----
+            if (l2_pend) begin
+                l2_pend  <= 1'b0;
+                l1_start <= 1'b1;
             end
         end
     end

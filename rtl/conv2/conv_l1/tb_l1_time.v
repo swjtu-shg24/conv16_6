@@ -26,11 +26,11 @@ module tb_l1_time;
     // ---------------- DUT ----------------
     reg         start = 0;
     wire        win_req;
-    wire [1:0]  win_ch;
+    wire [2:0]  win_ch;
     reg  [17:0] win_d [0:143];
     reg         win_vld = 0;
-    reg  [17:0] wdw [0:26];
-    reg  [17:0] wpw [0:23];
+    reg  [17:0] wdw [0:71];
+    reg  [17:0] wpw [0:127];
     wire [7:0]  pool_q [0:24];
     wire [2:0]  pool_oc;
     wire        pool_vld;
@@ -38,27 +38,43 @@ module tb_l1_time;
     wire [2:0]  p2_wr_bank;
     wire [12:0] p2_wr_addr;
     wire [39:0] p2_wr_data;
-    wire [7:0]  dwc [0:CIN-1][0:99];
+    wire [7:0]  dwc [0:7][0:99];
     wire [35:0] peo [0:99];
     wire        busy, done;
 
     // BN 参数（本 tb 只数拍数，显式接上避免悬空成 z）
-    wire [17:0] bna [0:7];
-    wire [17:0] bnb [0:7];
+    //   ★ 端口数组按最大配置定宽（16），8..15 显式补 0
+    wire [17:0] bna [0:15];
+    wire [17:0] bnb [0:15];
+    // dw 侧归一化参数（L1 配置不用，接 0）
+    wire [17:0] dna [0:7];
+    wire [17:0] dnb [0:7];
+    genvar gdn;
+    generate
+        for (gdn = 0; gdn < 8; gdn = gdn + 1) begin : g_dn_zero
+            assign dna[gdn] = 18'd0;
+            assign dnb[gdn] = 18'd0;
+        end
+    endgenerate
     genvar gbn;
     generate
         for (gbn = 0; gbn < 8; gbn = gbn + 1) begin : g_bn_flat
             assign bna[gbn] = 18'd384;
             assign bnb[gbn] = 18'd2560;
         end
+        for (gbn = 8; gbn < 16; gbn = gbn + 1) begin : g_bn_pad
+            assign bna[gbn] = 18'd0;
+            assign bnb[gbn] = 18'd0;
+        end
     endgenerate
 
     conv_l1 #(.CIN(CIN), .COUT(COUT)) u_l1 (
-        .clk(clk), .rstn(rstn), .start(start),
+        .clk(clk), .rstn(rstn), .start(start), .cfg_l2(1'b0),
         .tile_r(TR[4:0]), .tile_c(TC[5:0]),
         .win_req(win_req), .win_ch(win_ch), .win_d(win_d), .win_vld(win_vld),
         .w_dw(wdw), .w_pw(wpw),
         .bn_a(bna), .bn_b(bnb),
+        .dn_a(dna), .dn_b(dnb),
         .pool_q(pool_q), .pool_oc(pool_oc), .pool_vld(pool_vld),
         .p2_wr_en(p2_wr_en), .p2_wr_bank(p2_wr_bank),
         .p2_wr_addr(p2_wr_addr), .p2_wr_data(p2_wr_data),

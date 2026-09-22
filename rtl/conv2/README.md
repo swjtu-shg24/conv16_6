@@ -9,6 +9,16 @@
 > 参数现在是**端口** `bn_a[0:7]/bn_b[0:7]`（逐 oc，由 `conv_wrom` 给真实网络的 model.2）；
 > 老 tb 仍传旧常数 384/2560，**逐位不变**。
 
+> ### 先看这三份（2026-09-22 目录整理后）
+> | 文档 | 内容 |
+> |---|---|
+> | **[`TOOLS.md`](TOOLS.md)** | ★ **脚本工具总表**：有哪些脚本能直接跑、怎么调用、看到什么才算过、关键数字基线 |
+> | `README.md`（本文件） | 定点口径、逐模块清单、坑表、时序/资源 |
+> | `doc/HANDOFF.md` | 交接：当前状态 + 下一步；`doc/WORKLOG.md` 按时间的日志；`doc/L2_PLAN.md` L2 方案 |
+>
+> 目录：顶层 tb 在 `tb/`，仿真脚本在 `sim/`，过程文档在 `doc/`，每个模块一个自包含文件夹。
+> 一键验收：`rtl\conv2\sim\check_fixed_point.bat`；L1+L2 波形：`rtl\conv2\sim\run_wave_l2.bat`。
+
 ---
 
 ## ★ 真实激励仿真（test.jpg + 真实权重 ROM）—— 后加的一层，先看这一节
@@ -96,7 +106,7 @@ reflect-101 / 有符号池化），结果必然一致；
 :: ① 生成激励（用你的 conda cyclegan 环境，里面有 torch/numpy/openpyxl/PIL）
 & 'D:\Users\Administrator\anaconda3\envs\cyclegan\python.exe' rtl\conv2\picture_and_para\gen_stim.py
 :: ② 真实激励仿真：整帧 320x240x3 -> 160x120x8（约 3.5 分钟）
-vsim -c -do rtl/conv2/run_real.do
+vsim -c -do rtl/conv2/sim/run_real.do
 :: ③ 生成数据变化表
 & 'D:\Users\Administrator\anaconda3\envs\cyclegan\python.exe' rtl\conv2\picture_and_para\make_table.py
 ```
@@ -151,7 +161,7 @@ RTL 与 Golden 不一致的点会**标红**。
 ### 验收门禁：定点误差 = 0（一条命令）
 
 > **设计要求**：RTL 仿真结果必须与**定点模型完全一致（定点误差 = 0）**；浮点误差不是硬性要求。
-> 双击 `rtl\conv2\check_fixed_point.bat`（或工程根目录执行它）即可跑完整门禁，四步全过才打印
+> 双击 `rtl\conv2\sim\check_fixed_point.bat`（或工程根目录执行它）即可跑完整门禁，四步全过才打印
 > `FIXED-POINT ERROR = 0 -- ALL CHECKS PASS`：
 
 | 步 | 做什么 | 判据 |
@@ -302,6 +312,160 @@ RTL 与 Golden 不一致的点会**标红**。
 
 ---
 
+## ★ L2 层（已接入数据通路，端到端验通）
+
+> L2 = `model.5` = `DepthwiseSeparableConv(8→16, stride=1)` + `model.6` = `MaxPool2d(2)`：
+> **`dw3×3(8ch, 零填充)` → 归一化+ReLU → `pw1×1(8→16)` → 归一化(无 ReLU) → `2×2 max`**，
+> 输入 = L1 的池化输出 160×120×8（Q4.4），输出 = 80×60×16。
+> 整数规格见 `L2_PLAN.md §2.5`（`stim_model.stages_l2` / `l2_spec_check.py` 已验）。
+
+### 四个关键决定（都已落地）
+
+| # | 决定 | 为什么 |
+|---|---|---|
+| 1 | L1/L2 **共用同一个 `conv_l1` 实例**（`cfg_l2` 运行时切配置） | Ti60 只有 **160 个 DSP**，各来一套 100 PE = 200 装不下（L2_PLAN §6.4(a)/D1） |
+| 2 | L2 窗口从 **L1 输出面**读、**零填充**（`conv_win_load_plane`） | L2 的 dw 是 `Conv2d(padding=1)` = 零填充；**L1 才是反射**，别照抄 |
+| 3 | L2 结果 **原地写回 L1 面**（L2_PLAN §6.3 的映射） | 省 60 片 BRAM |
+| 4 | 写回经 **tile 行结果 FIFO + 滞后一个 tile 行排空**（`conv_wb_fifo`） | 见下"为什么不能就地立刻写" |
+
+### 地址映射（原地复用）
+
+```
+L2 输出 (oc2, r2, k2)  →  plane unit = ((oc2>>1)*120 + r2)*32 + (oc2&1)*16 + k2
+     r2 = 0..59（L1 面的行 0..59），k2 = 0..15（= tile_c，一个 unit = 同行连续 5 列）
+     ⇒ L1 面的行 60..119 永远不动（还是 L1 的数据）
+```
+
+### ★ 为什么不能"就地立刻写"（更正 L2_PLAN §6.3 的估算）
+
+L2 的写行是 `5tr..5tr+4`，而它自己一个 tile 行要读的行是 `10tr-1..10tr+10`：
+
+- 只有 `tr∈{0,1}` 时写行与读行**重叠**（`tr≥2` 天然安全）；
+- 但 `oc2` 为**奇数**时写的是行内**高半列**（列 `80+5tc..80+5tc+4`），
+  会踩到同一 tile 行里后面 `tc+1..tc+8` 个 tile 的读列
+  （例：`tc=0` 写列 80..84，`tc=8` 要读列 79..90）⇒ **"滞后一个 tile"不够**；
+- 所以缓冲也**不是** §6.3 说的"3.2 kbit 寄存器就够"，而是**一个 tile 行**
+  （`NTILE_C×80 = 1280 unit`，用 `conv_mem_unit #(.SEG(4))` = **8 片 BRAM**）。
+
+**现在的做法**：引擎的写口在 L2 相位先推到 `conv_wb_fifo`，积够一个 tile 行
+（1280 unit = `NTILE_C×80`）之后按同速率持续排水，**滞后恒定 = 一个 tile 行**。
+安全性一行证明：排空第 b 块时正在跑 tile `(tr, tc)`，排的是**上一 tile 行**同列的块
+→ 写行 = `5tr-5..5tr-1`；而这一拍起还会发生的读，行号 `≥ 10tr-1 > 5tr-1`
+⇒ **行集合不相交**，列怎么撞都无所谓（跨 tile 行的 ch0 预取也只在 `10tr-1..10tr+10` 内）。
+末尾还有 1280 拍的 flush（约 0.6% 帧时间），`done` 会等 FIFO 排空（`wb_empty`）才拉高。
+
+### 改动 / 新增文件
+
+| 文件 | 作用 |
+|---|---|
+| `conv_l1/conv_l1.v` | **+端口 `cfg_l2`** + 参数 `CIN2/COUT2/DW_NORM2/BN_RELU2`：`CIN_R/COUT_R/DWN_R/RELU_R/GRP_R` 由 `cfg_l2` 2 选 1（**cfg_l2=0 时逐位等于今天**）。端口数组（`w_dw`/`w_pw`/`bn_*`/`dn_*`/`dwc`）一律按**最大配置**定宽 |
+| `conv_plane/conv_plane.v` | **读口 40bit → 160bit（4 个连续 unit）**；`SEG` 变成参数；**4 个 bank 的 slice 映射寄存一拍**（面的读 bank 逐行变，不像 band 恒定） |
+| **`conv_win_load_plane/`** | **新增**：从 L1 面装 12×12 窗口、**零填充**；每行 1 次 4-unit 读；`tc≥1` 起始 unit 恰为 `2tc-1`、字节偏移恰为 4 |
+| **`conv_wb_fifo/`** | **新增**：1280 unit 结果 FIFO + 滞后一行排空的 drain FSM（`+16/+3824` 基底步进、`+32` 行步进，全前向加法） |
+| `conv_sched/conv_sched.v` | **+L2 相位**（`L2_EN`/`l2_go`/`wb_empty`）；L1 跑完 → 等 `l2_go` → L2 的 12×16 tile；L2 不需要等带填满、不发 `rows_free`；`done` 等 FIFO 排空 |
+| `conv_top/conv_top.v` | **+`L2_EN`（默认 0）/`NTILE_R2`/`NTILE_C2`/`L2_IW`/`L2_IH`/端口 `l2_go` + L2 权重 `w2_*`/`b2_*`**；按 `cfg_l2` 做**窗口源 / 权重源 / 写口 / 读口**四处 mux；例化 `conv_win_load_plane` + `conv_wb_fifo` |
+| `stim_model.py` | **+`plane_golden_l2(out, base)`**：L2 原地写回后**整块面**的 30720 unit 视图 |
+| `gen_stim.py` | **+`golden_plane_l2.hex` / `golden_out_plane_l2.npy`**；**+`l2_win_real.hex`（3 tile 的 12×12 零填充窗口）+`l2_golden_real_flat.hex`（3 tile 的逐级 DWC/BNR/QQ/BNQ/POOL）** |
+| `tb_top_l2.v` + `run_l2.do` | **新增端到端**：L1 面全量回读 → 放行 L2 → 整面全量回读；**并把 3 个 L2 tile 的逐级数据 + 12×12 窗口抓出来与 Python golden 逐点对拍**，落盘 `real_dump_l2.txt`（与 `l2_golden_real_flat.hex` 同格式，可 diff） |
+| `conv_l1/tb_l2.v` | **+`USE_CFG`**：`USE_CFG=1` 时用"参数配 L1、`cfg_l2=1` 切 L2"的**运行时通路**跑，与参数通路逐位相同 |
+
+### 时序与资源（实测）
+
+| 项 | 值 |
+|---|---|
+| L1 相位 | 768 tile / **118,943 拍**（平均 154 拍/tile，与只跑 L1 时**完全一致**） |
+| L2 单 tile | **424 拍**（12×16 = 192 tile；`S_DW` 8×14 + `S_DWN` 8×5 + `S_PW` 18×13 + 窗口/杂项） |
+| L2 相位 | **81,574 拍**（192 tile）+ 末尾 flush |
+| 整帧 L1+L2 | **200,517 拍 ≈ 1.00 ms @200 MHz** |
+| L2 握手计数 | `l1_start=192`、`win_req=1356`（= 1536 − 180 个预取掉的 ch0）、`wlp_vld=1537` |
+| 片数（`count_bram.do` 实测） | band 12 + L1 面 120 + 写回 FIFO 8 = **140/256 = 54.7%**；DSP **100/160**（共用） |
+
+### 验证链条（判据：逐 unit 0 差异）
+
+| tb | 验什么 | 结果 |
+|---|---|---|
+| `tb_l2`（`USE_CFG=0/1`） | L2 引擎：DWC/BNR/QQ/BNQ/POOL 各 15600 点（**两条配置通路都跑**） | **PASS** |
+| `tb_win_plane` | 12×16 tile × 8 通道 = **1536 个 12×12 窗口**逐字节（含四边零填充） | **PASS**（221,184 点 0 失败） |
+| `tb_wb_fifo` | 原地写回：L2 区 15,360 unit 全对 + **L1 区未被改动** + 滞后 ≥1280 | **PASS** |
+| `tb_plane` | 4-unit 宽读口（slice i = 第 i 个后续 unit）+ 单 unit 回读语义不变 | **PASS** |
+| `tb_sched` | L1 调度逐拍不变 | **PASS** |
+| `tb_top_real` | L1 整帧 30,720 unit（`L2_EN=0`） | **PASS**，118,943 拍 |
+| `tb_board` | 板级校验和（`L2_EN=0`） | **PASS**，`eb131b12a5` 不变 |
+| **`tb_top_l2`** | **L1+L2 整帧**：L1 面 30,720 unit + L1+L2 之后整面 30,720 unit；**+ 3 个 L2 tile 的逐级（DWC/BNR/QQ/BNQ/POOL）与 12×12 窗口** | **PASS**（逐点 0 失败；L1 相位 118,943 拍、L2 相位 81,574 拍） |
+
+### ★ 看波形：从输入到 L2 输出的完整波形（GUI）
+
+```bat
+:: 真实数据 L1+L2 整链波形（GUI + wave_l2.wlf，约 7 分钟）
+rtl\conv2\sim\run_wave_l2.bat
+```
+
+`wave_l2.do` 按**数据流顺序**分成 15 组（含专门标出的 L2 相位）：
+`DDR 读激励 → conv_in_dma → conv_band12 → L1 窗口(反射) → 共用餐 conv_l1 的运行时配置
+→ L1 dw → L1 pw/BN/池化 → L1 写面 → 调度/握手 → ★L2 面源窗口(零填充) → ★L2 引擎(cfg_l2=1)
+→ ★L2 写回 FIFO(滞后一行) → ★面写口 mux → 回读比对`。
+
+几个"跳过去看"的抓手：
+
+| 想看什么 | 看哪个信号 |
+|---|---|
+| 相位切换（L1→L2） | 第 0 组 `u_top/cfg_l2`、`l2_go`、`u_top/l2_run`；第 9 组 `u_top/u_sched/wait_l2` |
+| 运行时配置真的切了 | 第 5 组 `u_top/u_l1/CIN_R`（3→8）、`COUT_R`（8→16）、`GRP_R`（8→13）、`DWN_R`、`RELU_R` |
+| L2 窗口零填充 | 第 10 组 `skip_first/skip_last`、`rd_addr`、`pl_rd_data`、`win_d[0]` |
+| L2 两条归一化 + 池化 | 第 11 组 `dn_ch`、`qq[0]`、`bnq[0]`、`pool_q[0]`、`pool_oc` |
+| L2 原地写回的"滞后一行" | 第 12 组 `cnt`（排空阈值 1280）、`dr/dc`、`dk`、`bank/addr` vs `bbank/baddr` |
+| L2 结果写进面 | 第 13 组 `pl_wr_*`（L2 相位时来源是 FIFO） |
+| 最后整面回读 | 第 14 组 `p2_rd_addr_r` / `p2_rd_data` |
+
+> 整帧 20 万拍 ⇒ `wave_l2.wlf` 约 100 MB；bat 里用 `-gDUMP_ALL=0` 跳过全帧文本转储以加快 GUI 运行
+> （要转储就去掉那个参数）。L1 单独的波形仍是 `rtl\conv2\sim\run_wave.bat`（`tb_top_full`/`tb_top`，
+> 布局在 `wave_full.do`）。
+
+### ★ 看"全部仿真数据"（全帧转储 + 报告）
+
+`tb_top_l2` 默认 `DUMP_ALL=1`，会把**两层每个 tile 的每一级**都流式写出来（不占仿真内存），
+整面回读也顺便转储：
+
+| 文件（`picture_and_para/`） | 内容 |
+|---|---|
+| `rtl_dump_plane_l1.txt` | L1 跑完时的**整张面** 30,720 行：`u <40bit hex>` |
+| `rtl_dump_plane_l2.txt` | L1+L2 之后的**整张面**（L2 区 = 原地写回结果） |
+| `rtl_dump_l1_stage.txt` | L1 逐级全帧：`DWC(3ch) QQ(8oc) BNQ(8oc) POOL(8oc)`，每行 `级 tr tc idx v...` |
+| `rtl_dump_l2_stage.txt` | L2 逐级全帧：`DWC(8ch) BNR(8ch) QQ(16oc) BNQ(16oc) POOL(16oc)` |
+| `golden_l1_stages.npz` / `golden_l2_stages.npz` | 同口径的**全帧** golden（gen_stim.py 生成） |
+
+用 `dump_all_report.py` 把它们拼回整帧、**全量**对拍并出图：
+
+```bat
+& 'D:\Users\Administrator\anaconda3\envs\cyclegan\python.exe' rtl\conv2\picture_and_para\dump_all_report.py
+```
+
+打印每一级（全帧）的点数 / 不一致 / 最大|差| / 范围，并写出
+`picture_and_para/dump_all/`：`L1_plane.npy`、`L2_plane.npy`、
+`L1_<级>_<ch>.png`、`L2_<级>_<ch>.png`（每级每通道一张归一化图）、`feature_maps_dump_all.xlsx`。
+（想跑不带转储的快版：`vsim -c -do rtl/conv2/sim/run_l2.do -gDUMP_ALL=0`。）
+
+### 跑法
+
+```bat
+:: ① 生成激励 + golden（含 L2 的 golden_plane_l2.hex / 逐级全帧 npz / 3-tile 逐级）
+& 'D:\Users\Administrator\anaconda3\envs\cyclegan\python.exe' rtl\conv2\picture_and_para\gen_stim.py
+:: ② L1+L2 端到端（整帧，从 plane 全量回读 + 全帧逐级转储，约 10~15 分钟）
+vsim -c -do rtl/conv2/sim/run_l2.do
+:: ③ 把转储整理成"能看的全部数据"（全量对拍 + npy/png/xlsx）
+& 'D:\Users\Administrator\anaconda3\envs\cyclegan\python.exe' rtl\conv2\picture_and_para\dump_all_report.py
+:: ④ 单独跑各新模块（秒级）
+vsim -c -do rtl/conv2/conv_win_load_plane/run.do
+vsim -c -do rtl/conv2/conv_wb_fifo/run.do
+vsim -c -do rtl/conv2/conv_l1/run_l2.do
+```
+
+> ★ `conv_top` 的默认是 **`L2_EN=0`**（只跑 L1）—— 这样 4 个 L1 回归 tb（`tb_top`/`tb_top_full`/
+> `tb_top_real`/`tb_board`）**一个字都不用改、结果逐位不变**。要跑 L1+L2 就传 `.L2_EN(1)`
+> 并接上 `w2_*`/`b2_*` 与 `l2_go`（`tb_top_l2` 就是这么接的）。
+
+---
+
 ## 目录约定（**递归适用**）
 
 > **每一个文件夹都必须自包含、都能单独仿真。** 规则：
@@ -309,17 +473,39 @@ RTL 与 Golden 不一致的点会**标红**。
 > ② 每个文件夹里都要有自己的一套 **`filelist.f` + `run.bat` + `run.do`**，
 >    以及 `<模块>.v` + `tb_<模块>.v`；仿真产物（`work/`、`transcript`、`*.wlf`）也落在本文件夹；
 > ③ 子文件夹这样做，**子文件夹的子文件夹也这样做**（递归）。
-> ④ **顶层模块 `conv_top.v` 写在本层（外部）**，不放进子文件夹；本层同样有自己的 `filelist.f` + `run.bat` + `run.do`。
+> ④ **顶层模块 `conv_top.v` 写在本层（外部）**，不放进子文件夹；本层另外把
+>    **顶层 tb 集中在 `tb/`、仿真脚本集中在 `sim/`、过程文档集中在 `doc/`**。
+>
+> ★ **所有脚本/工具的清单与调用方式见 [`TOOLS.md`](TOOLS.md)。**
 
 ```
 rtl/conv2/                          ← 顶层（本层，外部）
-│   README.md
-│   filelist.f                      全量清单
-│   run.bat                         ① 全量编译 ② 各模块 run.do ③ 端到端 tb_top
-│   run.do                          全量编译 + 跑 tb_top
+│   README.md                       工程总说明（本文件）
+│   TOOLS.md                        ★ 脚本工具总表：叫什么 / 干什么 / 怎么调用 / 预期输出
+│   filelist.f                      全量清单（顶层一次编全部；顶层 tb 在 tb/）
 │   conv_top.v                      ← 顶层模块（**纯结构例化，无 always**）
-│   tb_top.v                        端到端自检（80×40×3 → 40×20×8）
-│   work/  transcript  top.wlf      本层仿真产物
+│
+├── tb/                             顶层端到端自检平台
+│     tb_top.v                      端到端自检（80×40×3 → 40×20×8）
+│     tb_top_full.v                 整帧回归（320×240×3 → 160×120×8，768 tile）
+│     tb_top_real.v                 真实图 + 真实权重（L1 整帧逐 unit 比对）
+│     tb_top_l2.v                   **L1+L2 端到端**（两面各 30720 unit 全量回读比对）
+│
+├── sim/                            仿真脚本（全部在**工程根目录**执行）
+│     run.bat                       ① 全量编译 ② 各模块 run.do ③ tb_top ④ tb_top_real
+│     run.do / run_full.do          全量编译 + tb_top / tb_top_full
+│     run_real.do                   全量编译 + tb_top_real（真实激励，L1）
+│     run_l2.do                     全量编译 + tb_top_l2（L1+L2，主要判据）
+│     run_wave.bat / wave_full.do   波形（GUI）：tb_top_full，按数据流分组
+│     run_wave_l2.bat / wave_l2.do  ★ 波形（GUI）：真实数据 L1→L2 全链，15 组
+│     count_bram.do                 数 bram_10kb 片数（预期 140/256）
+│     check_fixed_point.bat         ★ 验收总闸：5 步全绿才算过
+│     产物：work/ transcript* *.wlf（都在本文件夹）
+│
+├── doc/                            过程文档（不影响仿真）
+│     HANDOFF.md                    交接说明：当前状态 / 下一步
+│     WORKLOG.md                    工作日志（按时间）
+│     L2_PLAN.md                    L2 方案与推导
 │
 ├── conv_cmp4_tree/                 ← 每个模块文件夹都是自包含的：
 │     conv_cmp4_tree.v               RTL
@@ -331,11 +517,18 @@ rtl/conv2/                          ← 顶层（本层，外部）
 ├── conv_pool_arr/      conv_pool_arr.v      tb_pool.v      filelist.f run.bat run.do work/ …
 ├── conv_mem_unit/      conv_mem_unit.v      tb_mem_unit.v  …   ← 全工程唯一例化 bram_10kb 的地方
 ├── conv_band12/        conv_band12.v        tb_band.v      …
-├── conv_win_load/      conv_win_load.v      tb_win.v       …
+├── conv_win_load/      conv_win_load.v      tb_win.v       …   ← L1 窗口（band 源，反射填充）
+├── conv_win_load_plane/conv_win_load_plane.v tb_win_plane.v …  ← L2 窗口（面源，零填充）
+├── conv_wb_fifo/       conv_wb_fifo.v       tb_wb_fifo.v   …   ← L2 结果原地写回（滞后一排空）
 ├── conv_in_dma/        conv_in_dma.v        tb_dma.v       …
-├── conv_l1/            conv_l1.v            tb_l1_dw.v / tb_l1.v（run.do + run_dw.do）
+├── conv_l1/            conv_l1.v            tb_l1.v / tb_l1_dw.v / tb_l2.v / tb_l1_time.v / tb_l1_l2_trans.v
+│                                            （run.do / run_dw.do / run_l2.do / run_time.do / run_trans.do）
 ├── conv_sched/         conv_sched.v         tb_sched.v     …
-└── conv_plane/         conv_plane.v         tb_plane.v     …
+├── conv_plane/         conv_plane.v         tb_plane.v     …   ← L1/L2 共用输出面（读口 4 unit/拍）
+├── conv_wrom/          conv_wrom.v          tb_wrom.v  wrom.hex
+├── board/              板级顶层 conv_board_top.v + tb_board.v + conv_board.sdc（Efinity 用）
+├── picture_and_para/   激励/权重的 Python 生成与比对工具 + test.jpg + netG_B_epoch11.pth
+└── probe/              手工探针模块（不是自检 tb，按需往里挂）
 ```
 
 **`conv_top` 是纯结构**：只做子模块例化 + 连线，**不放任何 always / 状态机**；
@@ -588,10 +781,10 @@ band 读口 1 次/拍 ⇒ **12 拍/窗口**是硬下限（现测 `S_RUN` = 13 �
 
 ```bat
 :: ① 顶层：全量编译 + 依次跑各模块（工程根目录）
-rtl\conv2\run.bat
+rtl\conv2\sim\run.bat
 
 :: ② 顶层只做全量编译
-vsim -c -do rtl/conv2/run.do
+vsim -c -do rtl/conv2/sim/run.do
 
 :: ③ 单独跑某一个模块（子文件夹里双击 run.bat 也行）
 vsim -c -do rtl/conv2/conv_cmp4_tree/run.do    :: 4 输入比较树
@@ -609,13 +802,13 @@ vsim -c -do rtl/conv2/conv_plane/run.do        :: 输出面
 
 ```bat
 :: 整帧 320x240x3 -> 160x120x8（约 4~7 分钟，tb_top_full）
-rtl\conv2\run_wave.bat
+rtl\conv2\sim\run_wave.bat
 
 :: 小图 80x40x3 -> 40x20x8（约 30 秒，看波形更舒服，tb_top）
-rtl\conv2\run_wave.bat small
+rtl\conv2\sim\run_wave.bat small
 ```
 
-`run_wave.bat` 只管编译 + 起 GUI，波形布局在 `rtl/conv2/wave_full.do`，
+`run_wave.bat` 只管编译 + 起 GUI，波形布局在 `rtl/conv2/sim/wave_full.do`，
 按**数据流顺序**分成 12 组（共 90 多个关键信号）：
 
 | 组 | 内容 | 代表信号 |
@@ -642,7 +835,7 @@ rtl\conv2\run_wave.bat small
    名字对不上只打印一行 `[wave-skip]`，后面的分组照常加。
    （验证方式：用小图跑一遍，日志里应当**一条 `[wave-skip]` 都没有**。）
 
-产物：`rtl/conv2/wave.wlf`（波形）、`rtl/conv2/transcript_wave`（文字）。
+产物：`rtl/conv2/sim/wave.wlf`（波形）、`rtl/conv2/sim/transcript_wave`（文字）。
 
 ### run.bat 的两个坑（12 个 bat 已统一重建：**纯 ASCII + CRLF**）
 
@@ -686,7 +879,8 @@ rtl\conv2\run_wave.bat small
 | M4 | `conv_l1` 的 dw 相位（**实测抓数拍 = `c=13`、权重喂 `w[c-1]`**） | ✅ |
 | M5 | `conv_l1` 的 pw（累加在 **PE 内部**，用 `acc_en_pw`）+ 量化 + 池化 + 写回 | ✅ |
 | M6 | `conv_sched` + `conv_top`（顶层写在本层，纯结构例化）+ 端到端 `tb_top` | ✅ |
-| M7 | 整帧回归 320×240×3 → 160×120×8 + 资源/时序 | ⬜ 待写 |
+| M7 | 整帧回归 320×240×3 → 160×120×8 + 资源/时序 | ✅（`tb_top_full`/`tb_top_real`） |
+| **M8** | **L2 接入数据通路**（共用引擎 `cfg_l2` + 面源零填充窗口 + 原地写回 FIFO）+ 端到端 `tb_top_l2` | ✅ |
 
 ### 自检结果（15 个 tb 全 PASS）
 
@@ -747,6 +941,18 @@ rtl\conv2\run_wave.bat small
 | 33 | **BN 只在 `oc < COUT` 时置起 `bn_load`，第一组必须算进去** | `qq` 是"本组 m=7 沿"才写好的，BN 的 a 要到**下一组 m=0** 才能载入，所以 m=7 置 `bn_load` 的条件是**本组 oc < COUT**（g=0 也算）。原来写成 `oc>=1 && oc<=COUT`：g=0 不置起 → 第一组算 BN 时 `fm_la` 还是上一个 dw 窗口的残值（实测 `pe_out(4)=16768=384*37+2560` 而不是 `2944=384*1+2560`），池化结果全偏（`tb_l1` 报 `got 67 exp 11`） |
 | 34 | **`ch0_rdy` 悬空成 `z` 会"碰巧能跑"，接成 `1` 反而错** | `tb_l1` 原来没接这个新端口（`z` 在 `if` 里当假 ⇒ 等价于 0，正好是 tb 想要的"不做跨 tile 预取"）。后来显式接 `1'b1` 时，`conv_l1` 以为 ch0 窗口已经预取好、**不再发 ch0 的 `win_req`** → 3 个通道只装到 2 个，个别池化点 `got 10 exp 11`。tb 里要显式接 **`1'b0`** |
 | 35 | **别用 PowerShell 的 `Get-Content`/`Set-Content` 改这些源文件** | 源文件是 UTF-8（无 BOM），`Set-Content` 会按 ANSI 写回 → 中文注释全变成 `?`、行还会被并到一起（`tb_board.v` 被整片毁过一次，靠 `git checkout` 救回来）。改文件一律用编辑工具（保留编码） |
+| 36 | **原地写回的 oc 边界步进要用"基底"寄存器** | `+16/+3824` 是**基底（i=0）之间**的步进；`(oc,i=4) → (oc+1,i=0)` 的实际步进是 `16-128 = -112`（oc 偶）/ `3824-128 = +3696`（oc 奇）。写错会让地址从每个 oc 的第 2 行起整体漂移、最后漂进别的行 —— 症状：L2 区回读全 0、L1 区一半被写坏。正解：`bank/addr`（当前行指针，行内 +32）+ `bbank/baddr`（当前 oc 基底，oc 边界 +16/+3824）两个寄存器 |
+| 37 | **`dk[10:0]` 这种越界位选返回 `x`** | `dk` 只有 7 bit，`pop_ptr + dk[10:0]` 的高位取不到值 → 整个和变 **x**（FIFO 读地址全 x ⇒ 排空写进去的数据全是 0，而且不报错）。要写 `{4'b0, dk}` 补零扩展 |
+| 38 | **面的 4-unit 读口：slice 映射必须寄存一拍** | `conv_band12` 能直接用组合的 `rb[]` 选，是因为它的 `rd_bank` 在整个窗口内**恒定**；面的读 bank **逐行变**（每行 +32 unit → bank+2），用当前 `rb[]` 去选上一拍读回的数据会**整块错位**。正解：把 4 个 bank 也寄存一拍（`rb_d`），与 BRAM 的 1 拍读延迟对齐 |
+| 39 | **滞后排空要比"一个 tile"更长** | L2 的 `oc2` 为奇数时写的是行内**高半列**（列 `80+5tc..`），会踩到同一 tile 行里后面 `tc+1..tc+8` 个 tile 的读列 ⇒ "滞后一个 tile"不够，`conv_wb_fifo` 的阈值必须是**一个 tile 行**（`NTILE_C*80 = 1280` unit） |
+| 40 | **后台跑 vsim 时别把 stdout 接管道** | `vsim ... \| Select-String ...` 在长仿真里可能因为管道缓冲被写满而**把 vsim 挂住**（表现：日志不再增长）；但注意 ModelSim 的仿真内核是独立的 **`vsimk`** 进程，看 `vsim.exe` 的 CPU 会误判成"卡死"。稳妥做法：`cmd /c "vsim ... > log 2>&1"`，进度看 `-l` 指定的 transcript |
+| 41 | **别用 PowerShell 字符串替换改 `.md`/源码** | 用 `-replace` 批量改这些文件极危险：实测一次 `-replace` 把 `README.md` 里**每个 `f`/`F` 都换成了 `I`**（`Ti60F225`→`Ti60I225`、`ReflectionPad`→`ReIlectionP`、`flush`→`Ilush`），而且**不报错**。要改文档/源码一律用编辑工具；`README.md` 被 git 跟踪，出事可以 `git show HEAD:<path>` 取回干净版 |
+| 42 | **L1→L2 过渡时 `l1_start` 必须延后一拍** | `conv_sched` 的 `clr_pend` 是"延迟一拍清 `ch0_rdy`"，原来就是**故意**让它在 `l1_start` 那拍仍可见（L1 跨 tile 预取要用）。但切到 L2 时那个残留的 `ch0_rdy=1` 会让 `conv_l1` **直接进 `S_DW`**、用还没装载的 `win_d`（= x）→ **L2 第一个 tile 的 80 个输出全是 x**（实测症状）。修法：过渡当拍先清 `ch0_rdy`（`clr_pend`），`l1_start` 用 `l2_pend` 延后一拍再发 |
+| 43 | **加宽一个模块的端口后，所有例化点都要跟着加宽** | 把 `conv_win_load` 的 `ch` 从 `[1:0]` 加宽到 `[2:0]` 之后，老 tb 仍驱动 2bit → ModelSim 只报一条 `(vsim-3015) Port size (3) does not match connection size (2)`，**高位变成 z/x**，`cs = ch*CPU + u0v` 跟着变 x → 地址 x → 窗口里一半字节读到 x（`tb_win` 立刻 FAIL）。端口宽度改动要连 tb 一起改（踩坑 #7 的加强版） |
+| 44 | **用探针读"本拍正要写的寄存器"读到的是旧值** | 非阻塞赋值是**沿之后**才生效：在 `dwc[ch][p] <= ...` 那一拍去读 `dwc[ch][p]`，读到的是上一次的值。我第一次查 L2 的 x 就是被这个骗了（看到 `dwc[3..7]` 全 x，其实那只是 L1 从没写过、新值还没落地）。探针要**晚一拍**再读 |
+| 45 | **tb 里"等脉冲"要先排空可能还挂着的旧脉冲** | `while (win_vld !== 1) @(negedge clk);` 这种写法，如果进入循环时上一轮的 `win_vld` **还高着**，会立刻退出并拿**旧窗口**去对新参数 —— 症状是一堆"假失败"（我在 `tb_win_plane` 的背靠背相位上踩了两次）。发新请求前先 `while (win_vld === 1) @(negedge clk);` 排空 |
+| 46 | **给流水里的数据"贴标签"要让 RTL 给，不要让 tb 猜** | 窗口是**预取**来的：请求收下那一拍 `tile_r/tile_c/ch` 指向下一个 tile 的 ch0，14 拍后 `win_vld` 回来时这些端口可能已经指到别处了。tb 里自己锁存"收下那一拍"的端口值来贴标签，实测仍然错位（`tb_top_l2` 报 564 个窗口不符，而**整面逐点 bit-exact**——说明数据是对的，错的是标签）。正解：让 `conv_win_load_plane` 把收下请求那一拍的坐标锁存下来、**随 `win_vld` 一起输出**（`vld_tr/vld_tc/vld_ch`，纯观测端口），tb 直接用 → 3 个抽查 tile 的 19,056 点全部 0 失败 |
+| 47 | **全帧逐级转储不能复用"抽查 tile"的抓数打点** | `tb_top_l2` 里给 3 个抽查 tile 用的打点带 `l2hit`（只在 `LTR/LTC` 命中时为 1），拿它去驱动全帧转储 → L2 的 `rtl_dump_l2_stage.txt` 只有 3 个 tile 的量（DWC 24 行 = 3×8，而全帧应为 1536 行），而 POOL 是全帧（15,360 = 192×16×5）——**行数对不上就是转储门控错了**，不是仿真没跑完。全帧转储要用**只按相位门控**（`cfg_l2`）的另一套打点 |
 
 ### 综合（GUI）当前进展与卡点
 
@@ -873,7 +1079,7 @@ Setup worst slack : -0.118 ns
      一个 tile 的活动时间 118 → **155 拍**，其余是 23 个 tile 行边界等 DMA 补带 —— 见踩坑 #12）
 - 抽样 8 个 tile（四角 + 四边 + 中间）逐字节比对 plane 的 **320 个 unit，全部 0 失败**（黄金含 BN）
 - 窗口装载握手计数校验：`win_req = wl_start = win_vld = 2304`（= 768 tile × 3 通道），不多不少
-- 片数实测：`band12` 12 片 + `plane` 120 片 = **132 / 256 = 51.6%**（`rtl/conv2/count_bram.do` 在仿真里数的）
+- 片数实测：`band12` 12 片 + `plane` 120 片 = **132 / 256 = 51.6%**（`rtl/conv2/sim/count_bram.do` 在仿真里数的）
   —— BN 是纯算术、不占存储，**片数不变**
 
 > 速度参考：ModelSim 10.4 大约 **700~800 拍/秒**（100 个 DSP48 + 132 片 BRAM 行为模型）。

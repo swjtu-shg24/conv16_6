@@ -69,11 +69,31 @@ module conv_l1 #(
     //       BatchNorm 模型：BN 误差 1.7443 → 1.7408 LSB，池化 1.9828 → 2.0028 LSB（略差）
     //       实例归一化出图：L1 误差 0.0847 → 0.0857（略差），最终图 PSNR 23.78 → 24.15 dB（略好）
     //   → 影响在噪声级：误差主项不是 BN 自己的舍入，而是 qq 的格点误差被 scale 放大
-    parameter integer BN_ROUND  = 0
+    parameter integer BN_ROUND  = 0,
+    // ★ L2 需要**两层**归一化（dw 后一层 + pw 后一层），L1 只有 pw 后一层。
+    //   DW_NORM=1 时在 S_DW 和 S_PW 之间插一个 dw 侧归一化 pass（复用 PE 阵列）：
+    //     每通道 5 拍：m=0 载 a=dwc[dn_ch]/b=dn_a[dn_ch]，m=3 给 C=dn_b[dn_ch]，
+    //     m=4 抓 pe_out → dn_f()（>>>8 + clamp + **ReLU**）→ 写回 dwc[dn_ch][*]
+    //     CIN=8 → 8×5 = 40 拍/tile。默认 0 = 老行为（L1）逐位不变。
+    parameter integer DW_NORM   = 0,
+    //===========================================================================
+    // ★★ 运行时配置：同一个引擎**分时**跑 L1 / L2（DSP 保持 100，不翻倍）★★
+    //   cfg_l2 = 0 → 完全用上面的参数（= 今天的行为，**逐位不变**）
+    //   cfg_l2 = 1 → 用下面这组 L2 配置
+    //   为什么必须共用：Ti60F225 只有 **160 个 DSP**，L1+L2 各来一套 100 PE
+    //   = 200 装不下（见 L2_PLAN §6.4(a) / 决策点 D1）。
+    //   两个配置只差 4 个数：CIN / COUT / dw 侧要不要归一化 / pw 侧归一化要不要 ReLU。
+    //===========================================================================
+    parameter integer CIN2      = 8,     // L2 输入通道（= L1 的输出通道数）
+    parameter integer COUT2     = 16,    // L2 输出通道
+    parameter integer DW_NORM2  = 1,     // L2：dw 之后**有**归一化 + ReLU
+    parameter integer BN_RELU2  = 0      // L2：pw 侧归一化**没有** ReLU（值可为负）
 )(
     input  wire        clk,
     input  wire        rstn,
     input  wire        start,          // 单拍脉冲
+    // ---- 层选择（运行时；由 conv_sched 的阶段给出）----
+    input  wire        cfg_l2,         // 0 = L1（参数配置，逐位同今天）；1 = L2
     input  wire [4:0]  tile_r,
     input  wire [5:0]  tile_c,
     input  wire        ch0_rdy,        // ★ 本 tile 的 ch0 窗口已被 conv_sched 预取好（在 win_d 里）
@@ -85,8 +105,11 @@ module conv_l1 #(
     input  wire        win_vld,        // 单拍脉冲
 
     // ---- 权重 ----
-    input  wire [17:0] w_dw [0:CIN*9-1],   // 3ch × 9（行优先核）
-    input  wire [17:0] w_pw [0:COUT*CIN-1],// 8oc × 3ic
+    //   ★ 端口数组一律按**最大配置**（CIN2/COUT2）定宽，这样同一个实例
+    //     L1(L1 只用前 CIN*9 / COUT*CIN 个) 与 L2 都能用；
+    //     多出来的那些字不会被索引到（L1 时 w_pw 索引 ≤ (8-1)*3-1 = 20）。
+    input  wire [17:0] w_dw [0:CIN2*9-1],      // L1: 3ch × 9 ; L2: 8ch × 9
+    input  wire [17:0] w_pw [0:COUT2*CIN2-1],  // L1: 8oc × 3ic ; L2: 16oc × 8ic
 
     // ---- BatchNorm2d：y = (bn_a*x + bn_b) >>> 8  （Q8 定点，参数从 conv_wrom 来）----
     //   位置：pw 算出量化后的 10×10（qq）之后、2×2 max 池化之前。
@@ -94,8 +117,13 @@ module conv_l1 #(
     //         b 广播 bn_a，bias 走 DSP 的 C 端口（pe 的 C_BIAS_EN=1）。
     //   ★ 逐 oc：真实网络每个通道的 BN 参数都不同（scale 3.4~23.4），所以这里是数组。
     //     第 g 组算的是 oc = g-1，所以下标一律用 (oc-1)。
-    input  wire [17:0] bn_a [0:COUT-1],
-    input  wire [17:0] bn_b [0:COUT-1],
+    input  wire [17:0] bn_a [0:COUT2-1],
+    input  wire [17:0] bn_b [0:COUT2-1],
+
+    // ---- dw 侧归一化的参数（只在 dw 侧归一化=1 时用；L1 配置下接 0 即可）----
+    //   编码同 bn_a/bn_b：A_q = round(scale*256)、B_q = round(shift*4096)
+    input  wire [17:0] dn_a [0:CIN2-1],
+    input  wire [17:0] dn_b [0:CIN2-1],
 
     // ---- 池化结果（逐 oc 的 5×5，同时用于写回）----
     output reg  [7:0]  pool_q [0:24],
@@ -109,12 +137,28 @@ module conv_l1 #(
     output reg  [39:0] p2_wr_data,
 
     // ---- dw 中间结果（调试/验证）----
-    (* syn_ramstyle = "registers" *) output reg  [7:0]  dwc [0:CIN-1][0:99],
+    (* syn_ramstyle = "registers" *) output reg  [7:0]  dwc [0:CIN2-1][0:99],
     output wire [35:0] peo_dbg [0:99],
 
     output reg         busy,
     output reg         done
 );
+    //------------------------------------------------------------------
+    // ★ 运行时配置（cfg_l2 选择）——cfg_l2=0 时下面这些**恒等于参数**，
+    //   所以 L1 通路逐位不变；cfg_l2=1 时切到 L2 配置。
+    //   ★ 必须先声明再用（提前出现的标识符会被 vlog 当隐式 net，见踩坑 #18）
+    //------------------------------------------------------------------
+    wire [3:0] CIN_R  = cfg_l2 ? CIN2[3:0]  : CIN[3:0];
+    wire [4:0] COUT_R = cfg_l2 ? COUT2[4:0] : COUT[4:0];
+    wire       DWN_R  = cfg_l2 ? (DW_NORM2 != 0) : (DW_NORM != 0);
+    wire       RELU_R = cfg_l2 ? (BN_RELU2 != 0) : (BN_RELU != 0);
+    // ★ 软件流水的"格"：GRP = CIN + 5（L1: 3→8 拍；L2: 8→13 拍）
+    wire [4:0] GRP_R  = CIN_R + 5'd5;
+
+    // ★ pw 权重基址 = oc*CIN_R。用**递推**（+CIN_R）而不是每拍做运行时乘法，
+    //   这样 CIN 变成可配置之后，关键路径上没有多出乘法器。
+    reg  [6:0] pw_wbase;
+
     integer   p, gi2, rr, cc;
 
     //------------------------------------------------------------------
@@ -133,19 +177,29 @@ module conv_l1 #(
     //------------------------------------------------------------------
     // 状态机寄存器（fm_wdata 的组合来源要用到它们，所以先声明）
     //------------------------------------------------------------------
+    // ★ 组内周期 GRP = CIN + 5（pw 软件流水的"格"）：
+    //     m=0 载 BN 的 a=qq/b=bn_a；m=1..CIN 喂 pw 的 a/b（acc_en_pw 同拍）；
+    //     m=3 给 DSP 的 C 端口 bn_b；m=4 抓 bnq(oc-1) 且 acc 装载 p1；
+    //     m=5,6 池化 en(oc-1)；m<=4 写回 oc-2；m=CIN+4=GRP-1 抓 pe_out 得到
+    //     p1+..+p_CIN → 量化成 qq(oc)，同拍置起 bn_load（下一组 m=0 锁 qq）。
+    //     L1(CIN=3) → GRP=8，与原来"每 8 拍一个 oc"完全一致；L2(CIN=8) → 13。
+    //   ★ 现在 GRP 是**运行时** wire GRP_R（= CIN_R + 5），见文件开头。
+
     localparam [2:0] S_IDLE  = 3'd0,
                      S_WREQ  = 3'd1,
                      S_WWAIT = 3'd2,
                      S_DW    = 3'd3,
                      S_PW    = 3'd4,
-                     S_DONE  = 3'd5;
+                     S_DONE  = 3'd5,
+                     S_DWN   = 3'd6;   // ★ dw 侧归一化 pass（L2 用）
 
     reg [2:0] st;
     reg [2:0] ch;       // 输入通道（L1:0..2，L2:0..7 → 必须 ≥3 bit）
     reg [4:0] oc;       // pw：**正在"喂"的 oc = 组号 g**（软件流水，0..COUT+1）
     reg [4:0] c;        // dw 计数器
-    reg [4:0] pc;       // pw：**组内位置 m**（0..4，每 5 拍起一个 oc）
+    reg [4:0] pc;       // pw：**组内位置 m**（0..GRP-1，每 GRP 拍起一个 oc；GRP=CIN+5）
     reg [2:0] pw_cin;   // pw 喂 a 选哪个 dwc（L1:0..2，L2:0..7 → 必须 ≥3 bit）
+    reg [2:0] dn_ch;    // ★ dw 侧归一化：当前在归一化哪个输入通道
     reg       bn_load;  // ★ BN 相位：fm_wdata 取 qq（而不是 dwc）
     // ★ BatchNorm2d 的两级缓存（必须先声明：下面的 fm_wdata 组合块要用 qq）
     //   qq  = pw 量化结果（BN 的输入 x）      bnq = BN 输出（池化的输入）
@@ -157,15 +211,26 @@ module conv_l1 #(
     //   wl_nxt_rdy = 预取的那个窗口已经回来了。
     reg       wl_nxt_rdy;
     // 当前通道还有没有后继通道（有才预取）
-    wire      pf_vld = (ch < CIN[2:0] - 3'd1);
+    //   ★ 必须用整数比较：CIN=8 时 CIN[2:0] 是 0，用位选会把比较值截断成 0
+    wire      pf_vld = (ch < (CIN_R - 4'd1));
 
     wire pw_mode = (st == S_PW);
+    wire dn_mode = (st == S_DWN);   // ★ dw 侧归一化 pass
 
     always @(*) begin
         for (gi2 = 0; gi2 < 144; gi2 = gi2 + 1) begin
             rr = gi2 / 12;
             cc = gi2 % 12;
-            if (!pw_mode) begin
+            if (dn_mode) begin
+                // ★ dw 侧归一化：a = 该通道的 dwc（符号扩展）
+                if ((rr < 10) && (cc < 10)) begin
+                    if (Q44_SAT != 0) fm_wdata[gi2] = {{10{dwc[dn_ch][rr*10 + cc][7]}}, dwc[dn_ch][rr*10 + cc]};
+                    else              fm_wdata[gi2] = {10'd0, dwc[dn_ch][rr*10 + cc]};
+                end
+                else
+                    fm_wdata[gi2] = 18'd0;
+            end
+            else if (!pw_mode) begin
                 // ★ DW_SIGNED=1：窗口是 Q4.4 有符号 8bit（bit7 = 符号），符号扩展到 18bit；
                 //   DW_SIGNED=0：老行为，原样零扩展（win_d 的高 10bit 本来就是 0）
                 if (DW_SIGNED) fm_wdata[gi2] = {{10{win_d[gi2][7]}}, win_d[gi2][7:0]};
@@ -222,12 +287,15 @@ module conv_l1 #(
     //   ★ 顺带消掉一个 EFX-0657 隐患：pacc 原来读写下标全是常数，会被工具判成
     //     logic memory 去 bit-blast（随后在数据库里崩）。
     //------------------------------------------------------------------
-    wire acc_en_pw = (st == S_PW) && (oc < COUT[4:0]) && (pc >= 5'd1) && (pc <= 5'd3);
+    wire acc_en_pw = (st == S_PW) && (oc < COUT_R) && (pc >= 5'd1) && (pc <= CIN_R);
 
     // ★ BN 的 bias 只在"BN 乘积"那一拍（pc==3）加到 DSP 的 C 端口。
     //   其余时刻必须为 0：pc=4/5/6 是 pw 的 3 个乘积，若 C 非 0 会被一起加上去。
     wire [17:0] c_bn = ((st == S_PW) && (pc == 5'd3) &&
-                        (oc >= 5'd1) && (oc <= COUT[4:0])) ? bn_b[oc - 5'd1] : 18'd0;
+                        (oc >= 5'd1) && (oc <= COUT_R)) ? bn_b[oc - 5'd1] : 18'd0;
+    // ★ dw 侧归一化的 bias：S_DWN 的 m=3 给（两个状态互斥，所以可以 mux）
+    wire [17:0] c_dn = ((st == S_DWN) && (pc == 5'd3)) ? dn_b[dn_ch] : 18'd0;
+    wire [17:0] c_pe = (st == S_DWN) ? c_dn : c_bn;
 
      reg  [17:0] pe_lb [0:99];
     wire [35:0] pe_out [0:99];
@@ -237,7 +305,7 @@ module conv_l1 #(
         .clk(clk), .rstn(rstn), .op(fm_op),
         .acc_en_pw(acc_en_pw),          // ★ pw 相位的累加使能（dw 相位被 !op 屏蔽）
         .acc_clr(1'b0),                 // 本版仍用 acc_en_pw 窗口起累加，暂不用 acc_clr
-        .c_in(c_bn),                    // ★ BN 的 bias（DSP 的 C 端口，O = A*B + C）
+        .c_in(c_pe),                    // ★ 归一化的 bias（DSP 的 C 端口，O = A*B + C）
         .right_a_in_last_line(fm_right),
         .buttom_a_in_last_line(fm_buttom),
         .load_a_in(fm_la),
@@ -291,7 +359,7 @@ module conv_l1 #(
     //   所以 en 必须**连续两拍**，只给一拍第二级推不动（会一直保持旧值）
     //   新流水：池化 en 在 m=5,6（对应 oc-1 的格内 s=13,14）
     wire       pl_en = (st == S_PW) && ((pc == 5'd5) || (pc == 5'd6)) &&
-                       (oc >= 5'd1) && (oc <= COUT[4:0]);
+                       (oc >= 5'd1) && (oc <= COUT_R);
 
     conv_pool_arr #(.ROWS(5), .COLS(5), .SIGNED_CMP(Q44_SAT)) u_pool (
         .clk(clk), .rstn(rstn), .en(pl_en),
@@ -340,13 +408,29 @@ module conv_l1 #(
     //   bn_a/bn_b 都是 Q8 定点，所以这里 >>>8 回到整数域，再 clamp 0..255。
     //   ★ 不做 +128 四舍五入：bias 已经在定点域里加过了，这里只是移位+饱和。
     //------------------------------------------------------------------
+    // ★ dw 侧归一化：和 bnq_f 同一套算术，但**下限固定为 0**（dw 之后一定接 ReLU）
+    function [7:0] dn_f(input [23:0] x);
+        integer t;
+        begin
+            t = ($signed(x) + (BN_ROUND ? 128 : 0)) >>> 8;
+            if (Q44_SAT != 0) begin
+                if (t >  127) t =  127;
+                if (t < 0)    t = 0;          // ReLU
+            end else begin
+                if (t < 0)   t = 0;
+                if (t > 255) t = 255;
+            end
+            dn_f = t[7:0];
+        end
+    endfunction
+
     function [7:0] bnq_f(input [23:0] x);
         integer t;
         begin
             t = ($signed(x) + (BN_ROUND ? 128 : 0)) >>> 8;   // BN_ROUND=1 时四舍五入
             if (Q44_SAT != 0) begin
                 if (t >  127) t =  127;
-                if (BN_RELU != 0) begin
+                if (RELU_R) begin
                     if (t < 0) t = 0;        // ★ BN 之后是 ReLU（真实网络），不是对称饱和
                 end else begin
                     if (t < -128) t = -128;
@@ -384,7 +468,8 @@ module conv_l1 #(
     always @(posedge clk) begin
         if (!rstn) begin
             st <= S_IDLE; ch <= 3'd0; oc <= 5'd0; c <= 5'd0; pc <= 5'd0;
-            pw_cin <= 3'd0; wl_nxt_rdy <= 1'b0; bn_load <= 1'b0;
+            pw_cin <= 3'd0; wl_nxt_rdy <= 1'b0; bn_load <= 1'b0; dn_ch <= 3'd0;
+            pw_wbase <= 7'd0;
             win_req <= 1'b0; win_ch <= 3'd0;
             fm_wdata_en <= 1'b0; fm_op <= 1'b0; fm_start <= 1'b0;
             busy <= 1'b0;
@@ -415,6 +500,7 @@ module conv_l1 #(
                     busy <= 1'b1;
                     ch   <= 3'd0;
                     oc   <= 5'd0;
+                    pw_wbase <= 7'd0;       // ★ 运行时配置：pw 权重基址 = oc*CIN_R
                     wl_nxt_rdy <= 1'b0;
                     obank <= tb_bank;       // 整块基底只在这里算一次
                     // ★ 软件流水下 oaddr 是"写回"用的基底，比正在喂的 oc 落后 2 组
@@ -481,11 +567,21 @@ module conv_l1 #(
                 if (c == CAP_CYCLE[4:0]) begin
                     for (p = 0; p < 100; p = p + 1)
                         dwc[ch][p] <= quant36(pe_out_s[p]);
-                    if (ch == CIN[2:0] - 3'd1) begin
+                    if (ch == (CIN_R - 4'd1)) begin
                         oc <= 5'd0;
                         pc <= 5'd0;
+                        pw_wbase <= 7'd0;
                         fm_op <= 1'b0;          // 转直接相乘模式
-                        st <= S_PW;
+                        if (DWN_R) begin
+                            dn_ch <= 3'd0;
+                            // ★ wdata_en 必须**下一拍(pc=0)就有效**：和 BN 阶段一样，
+                            //   载荷发生在 pc=0 那一拍的时钟沿 → fm_la(1) = a。
+                            //   写成 (pc==0) 会晚一拍 → fm_la(1)=0，dsp 只加 C 端口。
+                            fm_wdata_en <= 1'b1;
+                            st    <= S_DWN;     // ★ L2：dw 之后先归一化+ReLU 再进 pw
+                        end else begin
+                            st <= S_PW;
+                        end
                     end else begin
                         ch <= ch + 3'd1;
                         if (wl_nxt_rdy) begin
@@ -528,11 +624,48 @@ module conv_l1 #(
             //     会被冲掉）。5 拍正好把写口打满 —— 这是本设计的**硬下限**。
             //     8 个 oc × 5 unit = 40 unit ⇒ 无论如何不可能低于 40 拍。
             //----------------------------------------------------
+            //----------------------------------------------------
+            // ★ S_DWN：dw 侧归一化 + ReLU（L2 用），每通道 5 拍
+            //   复用 PE 阵列：a=dwc[dn_ch] 经 fm_wdata_en 装入 feature_map 左上 10×10，
+            //   b 广播 dn_a[dn_ch]，bias 走 DSP 的 C 端口（dn_b[dn_ch]，m=3 给）。
+            //   时序与 pw 后面的归一化完全一致：m=0 载 a/b → dsp_o(3) → pe_out(4) 抓。
+            //   抓到的值 dn_f() 写回 dwc[dn_ch][*]（就地覆盖），pw 相位直接用。
+            //----------------------------------------------------
+            S_DWN: begin
+                if (pc == 5'd4) begin
+                    for (p = 0; p < 100; p = p + 1)
+                        dwc[dn_ch][p] <= dn_f(pe_out_s[p][23:0]);
+                    if (dn_ch == CIN_R[2:0] - 3'd1) begin
+                        dn_ch <= 3'd0;
+                        oc    <= 5'd0;
+                        pc    <= 5'd0;
+                        pw_wbase <= 7'd0;
+                        fm_op <= 1'b0;              // 已经在直接相乘模式
+                        st    <= S_PW;
+                    end else begin
+                        dn_ch <= dn_ch + 3'd1;
+                        pc    <= 5'd0;
+                    end
+                end else begin
+                    pc <= pc + 5'd1;
+                end
+
+                // a/b 装载：在 pc=4（本通道最后一拍）置起 → **下一拍 pc=0 有效**，
+                //   于是载荷落在 pc=0 的时钟沿上，fm_la(1) = dwc[dn_ch]（与 BN 阶段同相位）
+                fm_wdata_en <= (pc == 5'd4);
+                if (pc == 5'd0)
+                    for (p = 0; p < 100; p = p + 1)
+                        pe_lb[p] <= dn_a[dn_ch];
+            end
+
             S_PW: begin
-                // ---- 组内位置推进：m 0..7 循环，绕回时组号（= 正在喂的 oc）+1 ----
-                if (pc == 5'd7) begin
+                // ---- 组内位置推进：m 0..GRP-1 循环，绕回时组号（= 正在喂的 oc）+1 ----
+                //   ★ GRP 现在是运行时的 GRP_R = CIN_R + 5（L1: 8 拍；L2: 13 拍）
+                //   ★ 同拍把 pw 权重基址推进 CIN_R（下个 oc 的 oc*CIN_R）
+                if (pc == (GRP_R - 5'd1)) begin
                     pc <= 5'd0;
                     oc <= oc + 5'd1;
+                    pw_wbase <= pw_wbase + CIN_R;
                 end else begin
                     pc <= pc + 5'd1;
                 end
@@ -541,10 +674,10 @@ module conv_l1 #(
                 //           + BN 的 1 拍（m=7 置起 → **下一组 m=0 那一拍锁存 qq**）
                 //   ★ 流水关键：BN 的 wdata_en 在"量化那一拍"就置起，于是下一个 m=0
                 //     锁进去的正好是刚算好的 qq —— 零等待，不需要"喂完等结果"。
-                if ((oc < COUT[4:0]) && (pc <= 5'd2)) begin
+                if ((oc < COUT_R) && (pc <= CIN_R - 5'd1)) begin
                     fm_wdata_en <= 1'b1;
                     pw_cin      <= pc[2:0];
-                end else if ((pc == 5'd7) && (oc < COUT[4:0])) begin
+                end else if ((pc == (GRP_R - 5'd1)) && (oc < COUT_R)) begin
                     fm_wdata_en <= 1'b1;      // ★ 与 bn_load 的置起条件一致
                 end else begin
                     fm_wdata_en <= 1'b0;
@@ -566,21 +699,21 @@ module conv_l1 #(
                 //   ★ 置起条件用 (oc < COUT)：m=7 的 oc = 本组 g，要 BN 的是 oc=g，
                 //     而 qq 只在 oc < COUT 时才会写，所以 g=0 也必须置起（原来写
                 //     oc>=1 导致第一组（oc=1，算的是 oc=0）拿到的是**过期 a**）。
-                if      ((pc == 5'd7) && (oc < COUT[4:0]))                bn_load <= 1'b1;
+                if      ((pc == (GRP_R - 5'd1)) && (oc < COUT_R))         bn_load <= 1'b1;
                 else if  (pc == 5'd0)                                     bn_load <= 1'b0;
 
                 // (2) 喂 b：pw 的 3 拍（m=1,2,3 → w_pw[oc*CIN+0..2]）
                 //           + BN 的 m=0 → 广播 bn_a（和上面锁 qq 同拍，a/b 一起进流水）
-                if ((oc < COUT[4:0]) && (pc >= 5'd1) && (pc <= 5'd3))
+                if ((oc < COUT_R) && (pc >= 5'd1) && (pc <= CIN_R))
                     for (p = 0; p < 100; p = p + 1)
-                        pe_lb[p] <= w_pw[oc*CIN + pc - 5'd1];
-                else if ((pc == 5'd0) && (oc >= 5'd1) && (oc <= COUT[4:0]))
+                        pe_lb[p] <= w_pw[pw_wbase + pc - 5'd1];
+                else if ((pc == 5'd0) && (oc >= 5'd1) && (oc <= COUT_R))
                     for (p = 0; p < 100; p = p + 1)
                         pe_lb[p] <= bn_a[oc - 5'd1];      // ★ 逐 oc：本组算的是 oc-1
 
                 // (3) 量化 oc：m=7（acc 此时 = p1+p2+p3）。同拍 (1) 置起 BN 的 wdata_en。
                 //   ★ 这一级 quant24 不能省：qq / conv_pool_arr / conv_cmp4_tree 都是 8bit
-                if ((pc == 5'd7) && (oc < COUT[4:0]))
+                if ((pc == (GRP_R - 5'd1)) && (oc < COUT_R))
                     for (p = 0; p < 100; p = p + 1)
                         qq[p] <= quant24(pe_out_s[p][23:0]);
 
@@ -589,7 +722,7 @@ module conv_l1 #(
                 //     所以 m=4 的 pe_out = bn_a*qq + bn_b → >>>8 + clamp 存进 bnq。
                 //   ★ m=4 同时是下一个 oc 的"acc 装载 p1"那一拍：抓数读的是时钟沿**之前**
                 //     的值，装载发生在沿上，两者不冲突（这也是流水能叠起来的原因）。
-                if ((pc == 5'd4) && (oc >= 5'd1) && (oc <= COUT[4:0]))
+                if ((pc == 5'd4) && (oc >= 5'd1) && (oc <= COUT_R))
                     for (p = 0; p < 100; p = p + 1)
                         bnq[p] <= bnq_f(pe_out_s[p][23:0]);
 
@@ -614,7 +747,7 @@ module conv_l1 #(
                 // (7) 写回地址：m=7 装载"下一个写回 oc"的基底（下一组 m=0 用），
                 //     m=0..3 做行间递推（unit 每行 +32 → bank+2、addr+5，进位再 +1）。
                 //     跨 oc：unit += 120*32 = 3840，3840 % 6 == 0 ⇒ bank 不变、addr +640。
-                if (pc == 5'd7) begin
+                if (pc == (GRP_R - 5'd1)) begin
                     wbank <= obank;
                     waddr <= oaddr;
                     oaddr <= oaddr + 13'd640;
@@ -624,7 +757,7 @@ module conv_l1 #(
                 end
 
                 // (8) 最后一组（oc = COUT+1）排空完 → done
-                if ((pc == 5'd7) && (oc == COUT[4:0] + 5'd1)) st <= S_DONE;
+                if ((pc == (GRP_R - 5'd1)) && (oc == COUT_R + 5'd1)) st <= S_DONE;
             end
 
             //----------------------------------------------------

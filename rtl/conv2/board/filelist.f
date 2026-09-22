@@ -10,6 +10,9 @@ rtl/conv2/conv_mem_unit/conv_mem_unit.v
 rtl/conv2/conv_band12/conv_band12.v
 rtl/conv2/conv_plane/conv_plane.v
 rtl/conv2/conv_win_load/conv_win_load.v
+// ---- L2：面源窗口装载 + 写回 FIFO（conv_top 里例化，即使 L2_EN=0 也要能编译）----
+rtl/conv2/conv_win_load_plane/conv_win_load_plane.v
+rtl/conv2/conv_wb_fifo/conv_wb_fifo.v
 rtl/conv2/conv_in_dma/conv_in_dma.v
 rtl/conv2/conv_l1/conv_l1.v
 rtl/conv2/conv_sched/conv_sched.v

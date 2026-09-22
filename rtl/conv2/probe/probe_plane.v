@@ -31,11 +31,16 @@ module probe_plane (
     output wire [39:0]  pr_data,
     output wire [159:0] br_data
 );
+    // ★ 面的读口已加宽成 4 unit（160bit）：这里把 slice 0 接出去（老语义不变）
+    wire [159:0] pr_data_w;
+
     conv_plane u_plane (
         .clk(clk), .rstn(rstn),
         .wr_en(pw_en), .wr_bank(pw_bank), .wr_addr(pw_addr), .wr_data(pw_data),
-        .rd_en(pr_en), .rd_bank(pr_bank), .rd_addr(pr_addr), .rd_data(pr_data)
+        .rd_en(pr_en), .rd_bank(pr_bank), .rd_addr(pr_addr), .rd_data(pr_data_w)
     );
+
+    assign pr_data = pr_data_w[39:0];
 
     conv_band12 u_band (
         .clk(clk), .rstn(rstn),

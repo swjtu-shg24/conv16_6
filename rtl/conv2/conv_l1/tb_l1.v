@@ -21,13 +21,25 @@ module tb_l1;
     // BatchNorm2d 参数（Q8，逐 oc 端口）。本 tb 8 个通道都用同一对常数（与老的全局常数等价）
     localparam [17:0]  BN_A = 18'd384;    // 1.5
     localparam [17:0]  BN_B = 18'd2560;   // 10.0
-    wire [17:0] bna [0:COUT-1];
-    wire [17:0] bnb [0:COUT-1];
+    // ★ 端口数组按**最大配置**定宽（bn 16 / dn 8 / wdw 72 / wpw 128），L1 只用前面几项
+    wire [17:0] bna [0:15];
+    wire [17:0] bnb [0:15];
+    // dw 侧归一化参数（本 tb 是 L1 配置，DW_NORM=0 不用，接 0 避免悬空）
+    wire [17:0] dna [0:7];
+    wire [17:0] dnb [0:7];
     genvar gbn;
     generate
         for (gbn = 0; gbn < COUT; gbn = gbn + 1) begin : g_bn_flat
             assign bna[gbn] = BN_A;
             assign bnb[gbn] = BN_B;
+        end
+        for (gbn = COUT; gbn < 16; gbn = gbn + 1) begin : g_bn_pad
+            assign bna[gbn] = 18'd0;
+            assign bnb[gbn] = 18'd0;
+        end
+        for (gbn = 0; gbn < 8; gbn = gbn + 1) begin : g_dn_zero
+            assign dna[gbn] = 18'd0;
+            assign dnb[gbn] = 18'd0;
         end
     endgenerate
 
@@ -40,8 +52,8 @@ module tb_l1;
     wire [2:0]  win_ch;
     reg  [17:0] win_d [0:143];
     reg         win_vld = 0;
-    reg  [17:0] wdw [0:26];
-    reg  [17:0] wpw [0:23];
+    reg  [17:0] wdw [0:71];
+    reg  [17:0] wpw [0:127];
     wire [7:0]  pool_q [0:24];
     wire [3:0]  pool_oc;
     wire        pool_vld;
@@ -49,17 +61,18 @@ module tb_l1;
     wire [2:0]  p2_wr_bank;
     wire [12:0] p2_wr_addr;
     wire [39:0] p2_wr_data;
-    wire [7:0]  dwc [0:CIN-1][0:99];
+    wire [7:0]  dwc [0:7][0:99];
     wire [35:0] peo [0:99];
     wire        busy, done;
 
     conv_l1 #(.CIN(CIN), .COUT(COUT)) u_l1 (
-        .clk(clk), .rstn(rstn), .start(start),
+        .clk(clk), .rstn(rstn), .start(start), .cfg_l2(1'b0),
         .tile_r(TR[4:0]), .tile_c(TC[5:0]),
         .win_req(win_req), .win_ch(win_ch), .win_d(win_d), .win_vld(win_vld),
         .ch0_rdy(1'b0),        // 本 tb 不做跨 tile 预取：ch0 也要正常发 win_req
         .w_dw(wdw), .w_pw(wpw),
         .bn_a(bna), .bn_b(bnb),
+        .dn_a(dna), .dn_b(dnb),
         .pool_q(pool_q), .pool_oc(pool_oc), .pool_vld(pool_vld),
         .p2_wr_en(p2_wr_en), .p2_wr_bank(p2_wr_bank),
         .p2_wr_addr(p2_wr_addr), .p2_wr_data(p2_wr_data),

@@ -41,7 +41,10 @@ module conv_win_load #(
     input  wire         start,
     input  wire [4:0]   tile_r,
     input  wire [5:0]   tile_c,
-    input  wire [1:0]   ch,
+    // ★ 3bit：conv_top 里 win_ch/wl_ch 已经是 3bit（L2 有 8 个输入通道）。
+    //   band 只服务 L1（ch 0..2），所以高位的值用不到；用 3bit 是为了**接口宽度一致**，
+    //   避免 (vsim-3015) "Port size does not match" 的静默截断（见踩坑 #7）。
+    input  wire [2:0]   ch,
 
     // band 读口（4 个连续 unit = 160 bit）
     output wire         rd_en,
@@ -71,7 +74,7 @@ module conv_win_load #(
     reg         sh_q;                 // 跨距内字节偏移：0 或 4
     reg  [2:0]  bank_q;               // (chr*64 + u0) mod 6  —— 常量
     reg  [12:0] addr_off_q;           // chr*10 + (chr*64+u0)/6 —— 常量
-    reg  [1:0]  chr_q;
+    reg  [2:0]  chr_q;                // （仅留档/调试用；本模块的地址计算用的是组合的 ch）
     reg         tc_is_zero, tc_is_last;
 
     (* syn_ramstyle = "registers" *) reg  [7:0]  wbuf [0:WN-1];

@@ -23,31 +23,47 @@ module tb_l1_dw;
     // ---------------- DUT ----------------
     reg         start = 0;
     wire        win_req;
-    wire [1:0]  win_ch;
+    wire [2:0]  win_ch;
     reg  [17:0] win_d [0:143];
     reg         win_vld = 0;
-    reg  [17:0] wdw [0:26];
-    reg  [17:0] wpw [0:23];
-    wire [7:0]  dwc [0:CIN-1][0:99];
+    reg  [17:0] wdw [0:71];
+    reg  [17:0] wpw [0:127];
+    wire [7:0]  dwc [0:7][0:99];
     wire [35:0] peo [0:99];
     wire        busy, done;
 
     // BN 参数（本 tb 只查 dw 相位，显式接上避免悬空成 z）
-    wire [17:0] bna [0:7];
-    wire [17:0] bnb [0:7];
+    //   ★ 端口数组按最大配置定宽（16），8..15 显式补 0
+    wire [17:0] bna [0:15];
+    wire [17:0] bnb [0:15];
+    // dw 侧归一化参数（L1 配置不用，接 0）
+    wire [17:0] dna [0:7];
+    wire [17:0] dnb [0:7];
+    genvar gdn;
+    generate
+        for (gdn = 0; gdn < 8; gdn = gdn + 1) begin : g_dn_zero
+            assign dna[gdn] = 18'd0;
+            assign dnb[gdn] = 18'd0;
+        end
+    endgenerate
     genvar gbn;
     generate
         for (gbn = 0; gbn < 8; gbn = gbn + 1) begin : g_bn_flat
             assign bna[gbn] = 18'd384;
             assign bnb[gbn] = 18'd2560;
         end
+        for (gbn = 8; gbn < 16; gbn = gbn + 1) begin : g_bn_pad
+            assign bna[gbn] = 18'd0;
+            assign bnb[gbn] = 18'd0;
+        end
     endgenerate
 
     conv_l1 #(.CIN(CIN)) u_l1 (
-        .clk(clk), .rstn(rstn), .start(start),
+        .clk(clk), .rstn(rstn), .start(start), .cfg_l2(1'b0),
         .win_req(win_req), .win_ch(win_ch), .win_d(win_d), .win_vld(win_vld),
         .w_dw(wdw), .w_pw(wpw),
         .bn_a(bna), .bn_b(bnb),
+        .dn_a(dna), .dn_b(dnb),
         .dwc(dwc), .peo_dbg(peo), .busy(busy), .done(done)
     );
 

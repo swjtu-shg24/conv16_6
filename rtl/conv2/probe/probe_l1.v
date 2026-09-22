@@ -27,26 +27,42 @@ module probe_l1 (
     output wire         done
 );
     wire [17:0] win_d [0:143];
-    wire [17:0] wdw   [0:26];
-    wire [17:0] wpw   [0:23];
+    wire [17:0] wdw   [0:71];
+    wire [17:0] wpw   [0:127];
     wire [7:0]  pq    [0:24];
     wire        win_req;
-    wire [1:0]  win_ch;
-    wire [7:0]  dwc [0:2][0:99];
+    wire [2:0]  win_ch;
+    wire [7:0]  dwc [0:7][0:99];
     wire [35:0] peo [0:99];
 
-    wire [17:0] bna [0:7];
-    wire [17:0] bnb [0:7];
+    wire [17:0] bna [0:15];
+    wire [17:0] bnb [0:15];
+    // dw 侧归一化参数（L1 配置不用，接 0）
+    wire [17:0] dna [0:7];
+    wire [17:0] dnb [0:7];
+    genvar gdn;
+    generate
+        for (gdn = 0; gdn < 8; gdn = gdn + 1) begin : g_dn_zero
+            assign dna[gdn] = 18'd0;
+            assign dnb[gdn] = 18'd0;
+        end
+    endgenerate
 
     genvar g;
     generate
         for (g = 0; g < 144; g = g + 1) assign win_d[g] = win_flat[g*18 +: 18];
         for (g = 0; g <  27; g = g + 1) assign wdw[g]   = wdw_flat[g*18 +: 18];
+        for (g = 27; g <  72; g = g + 1) assign wdw[g]  = 18'd0;
         for (g = 0; g <  24; g = g + 1) assign wpw[g]   = wpw_flat[g*18 +: 18];
+        for (g = 24; g < 128; g = g + 1) assign wpw[g]  = 18'd0;
         for (g = 0; g <  25; g = g + 1) assign pool_flat[g*8 +: 8] = pq[g];
         for (g = 0; g <   8; g = g + 1) begin
             assign bna[g] = 18'd384;
             assign bnb[g] = 18'd2560;
+        end
+        for (g = 8; g <  16; g = g + 1) begin
+            assign bna[g] = 18'd0;
+            assign bnb[g] = 18'd0;
         end
     endgenerate
 
@@ -54,11 +70,12 @@ module probe_l1 (
     assign win_ch  = win_ch_i;
 
     conv_l1 #(.CIN(3), .COUT(8)) u_l1 (
-        .clk(clk), .rstn(rstn), .start(start),
+        .clk(clk), .rstn(rstn), .start(start), .cfg_l2(1'b0),
         .tile_r(tile_r), .tile_c(tile_c),
         .win_req(win_req), .win_ch(win_ch), .win_d(win_d), .win_vld(win_vld[0]),
         .w_dw(wdw), .w_pw(wpw),
         .bn_a(bna), .bn_b(bnb),
+        .dn_a(dna), .dn_b(dnb),
         .pool_q(pq), .pool_oc(pool_oc), .pool_vld(pool_vld),
         .p2_wr_en(p2_wr_en), .p2_wr_bank(p2_wr_bank),
         .p2_wr_addr(p2_wr_addr), .p2_wr_data(p2_wr_data),
