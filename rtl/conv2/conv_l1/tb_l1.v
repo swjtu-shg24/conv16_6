@@ -5,6 +5,7 @@
 //   黄金模型：完全照 RTL 的定义手算
 //     dwc[ch][p] = clamp((Σ_t win[ch][PE p 的核位置 t] * w_dw[ch*9+t] + 128) >>> 8)
 //     q[oc][p]   = clamp((Σ_cin dwc[cin][p] * w_pw[oc*3+cin] + 128) >>> 8)
+//     bn[oc][p]  = clamp((BN_A*q[oc][p] + BN_B) >>> 8)      ← 池化前插入的 BatchNorm2d
 //     pool[oc]   = 10×10 上做 2×2 max → 5×5
 //   检查：
 //     ① 每个 oc 的 pool_q[0:24]（25 点 × 8 oc）
@@ -17,6 +18,18 @@ module tb_l1;
     localparam integer COUT = 8;
     localparam integer TR   = 5;      // tile_r
     localparam integer TC   = 7;      // tile_c
+    // BatchNorm2d 参数（Q8，逐 oc 端口）。本 tb 8 个通道都用同一对常数（与老的全局常数等价）
+    localparam [17:0]  BN_A = 18'd384;    // 1.5
+    localparam [17:0]  BN_B = 18'd2560;   // 10.0
+    wire [17:0] bna [0:COUT-1];
+    wire [17:0] bnb [0:COUT-1];
+    genvar gbn;
+    generate
+        for (gbn = 0; gbn < COUT; gbn = gbn + 1) begin : g_bn_flat
+            assign bna[gbn] = BN_A;
+            assign bnb[gbn] = BN_B;
+        end
+    endgenerate
 
     reg clk = 0, rstn = 0;
     always #5 clk = ~clk;
@@ -24,13 +37,13 @@ module tb_l1;
     // ---------------- DUT ----------------
     reg         start = 0;
     wire        win_req;
-    wire [1:0]  win_ch;
+    wire [2:0]  win_ch;
     reg  [17:0] win_d [0:143];
     reg         win_vld = 0;
     reg  [17:0] wdw [0:26];
     reg  [17:0] wpw [0:23];
     wire [7:0]  pool_q [0:24];
-    wire [2:0]  pool_oc;
+    wire [3:0]  pool_oc;
     wire        pool_vld;
     wire        p2_wr_en;
     wire [2:0]  p2_wr_bank;
@@ -44,7 +57,9 @@ module tb_l1;
         .clk(clk), .rstn(rstn), .start(start),
         .tile_r(TR[4:0]), .tile_c(TC[5:0]),
         .win_req(win_req), .win_ch(win_ch), .win_d(win_d), .win_vld(win_vld),
+        .ch0_rdy(1'b0),        // 本 tb 不做跨 tile 预取：ch0 也要正常发 win_req
         .w_dw(wdw), .w_pw(wpw),
+        .bn_a(bna), .bn_b(bnb),
         .pool_q(pool_q), .pool_oc(pool_oc), .pool_vld(pool_vld),
         .p2_wr_en(p2_wr_en), .p2_wr_bank(p2_wr_bank),
         .p2_wr_addr(p2_wr_addr), .p2_wr_data(p2_wr_data),
@@ -118,6 +133,10 @@ module tb_l1;
                     v_ = (s_ + 128) >>> 8;
                     if (v_ < 0)   v_ = 0;
                     if (v_ > 255) v_ = 255;
+                    // ★ BatchNorm2d：y = (BN_A*x + BN_B) >>> 8，再 clamp
+                    v_ = (BN_A * v_ + BN_B) >>> 8;
+                    if (v_ < 0)   v_ = 0;
+                    if (v_ > 255) v_ = 255;
                     qg[oc_][pi] = v_;
                 end
             // pool 2x2 -> 5x5
@@ -154,6 +173,23 @@ module tb_l1;
     endtask
 
     integer ub_, unit_;
+
+    // ---------------- 临时探针（vsim +PROBE 打开）----------------
+    initial begin
+        if ($test$plusargs("PROBE")) begin
+            $display("\n cyc  | st pc oc | fmwen bnld |  c_bn |  fm_la0   pe_lb0 |      pe_out0       | qq0 bnq0");
+            forever begin
+                @(negedge clk);
+                if (rstn && (u_l1.st == 3'd4))
+                    $display(" %5t | %0d  %0d  %0d |   %b     %b | %6d | %8d %8d | %18d | %3d %3d",
+                             $time, u_l1.st, u_l1.pc, u_l1.oc,
+                             u_l1.fm_wdata_en, u_l1.bn_load, $signed(u_l1.c_bn),
+                             $signed(u_l1.fm_la[0]), $signed(u_l1.pe_lb[0]),
+                             $signed(u_l1.pe_out[0]), u_l1.qq[0], u_l1.bnq[0]);
+            end
+        end
+    end
+
     initial begin
         $display("\n================ tb_l1 : conv_l1 整片 ================");
         for (pi = 0; pi < 27; pi = pi + 1) wdw[pi] = (pi%9) + 1;      // 权重 1..9

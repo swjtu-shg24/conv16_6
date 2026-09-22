@@ -93,6 +93,17 @@ module tb_top;
         w_ready = 1;
     end
 
+    // ---------------- BatchNorm2d 参数（逐 oc 口；老 tb 全部用原来的 384/2560，行为逐位不变）----------------
+    wire [17:0] bna [0:7];
+    wire [17:0] bnb [0:7];
+    genvar gbn;
+    generate
+        for (gbn = 0; gbn < 8; gbn = gbn + 1) begin : g_bn_old
+            assign bna[gbn] = 18'd384;
+            assign bnb[gbn] = 18'd2560;
+        end
+    endgenerate
+
     // ---------------- DUT（纯结构顶层）----------------
     wire [39:0] p2_rd_data;
     wire        done;
@@ -110,6 +121,7 @@ module tb_top;
         .w_read_data_channel1(rd_data), .w_read_data_valid_channel1(rd_valid),
         .w_read_data_id_channel1(rd_data_id),
         .w_dw(wdw), .w_pw(wpw),
+        .bn_a(bna), .bn_b(bnb),
         .p2_rd_en(p2_rd_en_r), .p2_rd_bank(p2_rd_bank_r),
         .p2_rd_addr(p2_rd_addr_r), .p2_rd_data(p2_rd_data),
         .done(done)
@@ -143,6 +155,15 @@ module tb_top;
 
     // ---------------- win_load 状态开销（每窗口里有多少拍真在访问 band）----------------
     integer wl_idle=0, wl_run=0, wl_done=0;
+    // ch0 跨 tile 预取探针
+    integer n_pre_issue=0, n_pre_used=0, n_ch0miss=0;
+    always @(posedge clk) begin
+        if (rstn) begin
+            if (u_top.u_sched.issue_pre) n_pre_issue = n_pre_issue + 1;
+            if (u_top.u_sched.ch0_rdy && u_top.l1_start) n_pre_used = n_pre_used + 1;
+            if (!u_top.u_sched.ch0_rdy && u_top.l1_start) n_ch0miss = n_ch0miss + 1;
+        end
+    end
     always @(posedge clk) begin
         if (cnt_en) case (u_top.u_wl.st)
             2'd0: wl_idle = wl_idle + 1;
@@ -191,6 +212,10 @@ module tb_top;
                             for (ch_ = 0; ch_ < 3; ch_ = ch_ + 1)
                                 s = s + dwcv[ch_] * wpw[oc*3 + ch_];
                             v = (s + 128) >>> 8;
+                            if (v < 0)   v = 0;
+                            if (v > 255) v = 255;
+                            // ★ BatchNorm2d（conv_top 的 BN_A/BN_B，Q8）
+                            v = (384 * v + 2560) >>> 8;
                             if (v < 0)   v = 0;
                             if (v > 255) v = 255;
                             if (v > mx) mx = v;
@@ -281,6 +306,9 @@ module tb_top;
         $display("    S_WWAIT/窗口 = %0d 拍  -> 非访问开销 = %0d 拍/窗口",
                  c_wwait/(NTILE_R*NTILE_C*3),
                  c_wwait/(NTILE_R*NTILE_C*3) - wl_run/(NTILE_R*NTILE_C*3));
+        $display("  ---- ch0 跨 tile 预取 ----");
+        $display("    issue_pre = %0d 次   l1_start 时 ch0_rdy=1 = %0d 次   ch0_rdy=0 = %0d 次",
+                 n_pre_issue, n_pre_used, n_ch0miss);
         if (errs == 0) $display("  TB_TOP RESULT: PASS");
         else           $display("  TB_TOP RESULT: FAIL");
         $display("---------------------------------------------\n");

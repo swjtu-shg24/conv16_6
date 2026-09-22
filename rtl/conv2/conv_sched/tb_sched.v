@@ -27,6 +27,26 @@ module tb_sched;
     wire        wl_start;
     reg         wl_busy = 0;
     wire        rows_free, busy, done;
+    // ★ ch0 跨 tile 预取
+    wire [4:0]  wl_tile_r;
+    wire [5:0]  wl_tile_c;
+    wire        pre_act;
+    wire        ch0_rdy;
+    reg         win_vld = 0;
+
+    // 假 win_load：收下 wl_start 后 3 拍回一个 win_vld（够预取逻辑跑通）
+    reg [3:0] wvd = 0;
+    always @(posedge clk) begin
+        if (!rstn) begin win_vld <= 1'b0; wvd <= 4'd0; wl_busy <= 1'b0; end
+        else begin
+            win_vld <= 1'b0;
+            if (wl_start) begin wl_busy <= 1'b1; wvd <= 4'd3; end
+            else if (wvd != 4'd0) begin
+                wvd <= wvd - 4'd1;
+                if (wvd == 4'd1) begin win_vld <= 1'b1; wl_busy <= 1'b0; end
+            end
+        end
+    end
 
     // 输入带进度：持续喂 in_row_vld（保证带总是"填够"，让调度一路跑下去）
     reg in_row_vld = 0;
@@ -41,11 +61,13 @@ module tb_sched;
         end
     end
 
-    conv_sched #(.NTILE_R(NR), .NTILE_C(NC)) u_sched (
+    conv_sched #(.NTILE_R(NR), .NTILE_C(NC), .CIN(WPC)) u_sched (
         .clk(clk), .rstn(rstn), .start(start),
         .in_row_vld(in_row_vld),
         .l1_start(l1_start), .tile_r(tile_r), .tile_c(tile_c), .l1_done(l1_done),
-        .win_req(win_req), .wl_start(wl_start), .wl_busy(wl_busy),
+        .win_req(win_req), .wl_start(wl_start), .wl_busy(wl_busy), .win_vld(win_vld),
+        .wl_tile_r(wl_tile_r), .wl_tile_c(wl_tile_c),
+        .pre_act(pre_act), .ch0_rdy(ch0_rdy),
         .rows_free(rows_free), .busy(busy), .done(done)
     );
 
@@ -74,6 +96,15 @@ module tb_sched;
     // ---------------- 检查 ----------------
     integer errs = 0, checks = 0;
     integer n_start = 0, n_wl = 0, n_rf = 0, n_tile = 0;
+    integer n_pre = 0, n_pre_bad = 0;
+    integer n_issue = 0;
+    integer pr_r = 0, pr_c = 0;
+    reg     pr_v = 0;
+
+    // 探针：issue_pre 发出过几次
+    always @(posedge clk) begin
+        if (rstn && u_sched.issue_pre) n_issue = n_issue + 1;
+    end
     integer exp_r = 0, exp_c = 0;
     integer wl_this_tile = 0;
 
@@ -101,7 +132,32 @@ module tb_sched;
                 n_tile = n_tile + 1;
             end
 
-            if (wl_start) begin n_wl = n_wl + 1; wl_this_tile = wl_this_tile + 1; end
+            // 只把"正常请求"计入本 tile 次数；预取（pre_act=1）单独算
+            if (wl_start && !pre_act) begin
+                n_wl = n_wl + 1;
+                wl_this_tile = wl_this_tile + 1;
+            end
+
+            // ★ 预取：记下"被预取的 tile 坐标"，等它真的被 l1_start 起来时核对
+            //   （预取请求可能晚几拍才被 win_load 收下，所以不能拿"当前 tile"去推）
+            if (wl_start && pre_act) begin
+                n_pre = n_pre + 1;
+                pr_r  = wl_tile_r;
+                pr_c  = wl_tile_c;
+                pr_v  = 1'b1;
+            end
+            if (l1_start && pr_v) begin
+                checks = checks + 1;
+                if ((tile_r !== pr_r[4:0]) || (tile_c !== pr_c[5:0])) begin
+                    if (n_pre_bad < 6)
+                        $display("      PRE TILE MISMATCH: 预取了 r=%0d c=%0d，但下一个起来的是 r=%0d c=%0d",
+                                 pr_r, pr_c, tile_r, tile_c);
+                    n_pre_bad = n_pre_bad + 1;
+                    errs = errs + 1;
+                end
+                pr_v = 1'b0;
+            end
+
             if (rows_free) n_rf = n_rf + 1;
         end
     end
@@ -128,11 +184,15 @@ module tb_sched;
         end
 
         $display("  l1_start 次数 = %0d（应 %0d）", n_start, NR*NC);
-        $display("  wl_start 次数 = %0d（应 %0d）", n_wl, NR*NC*WPC);
+        $display("  wl_start 次数 = %0d（应 %0d，不含跨 tile 预取）", n_wl, NR*NC*WPC);
         $display("  rows_free 次数 = %0d（应 %0d）", n_rf, NR);
+        $display("  跨 tile 预取次数 = %0d（应 %0d = NR*(NC-1)，tile 行末尾不预取）",
+                 n_pre, NR*(NC-1));
+        $display("  [probe] issue_pre 次数 = %0d", n_issue);
         if (n_start !== NR*NC)  begin $display("      FAIL: l1_start 次数不对"); errs = errs + 1; end
         if (n_wl    !== NR*NC*WPC) begin $display("      FAIL: wl_start 次数不对"); errs = errs + 1; end
         if (n_rf    !== NR)     begin $display("      FAIL: rows_free 次数不对"); errs = errs + 1; end
+        if (n_pre   !== NR*(NC-1)) begin $display("      FAIL: 预取次数不对"); errs = errs + 1; end
         if (done !== 1'b1)      begin $display("      FAIL: done 没来"); errs = errs + 1; end
 
         $display("\n---------------- tb_sched 汇总 ----------------");

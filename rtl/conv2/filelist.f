@@ -35,10 +35,14 @@ rtl/pe10_10/pe_10_10.v
 // ---- 调度 ----
 rtl/conv2/conv_sched/conv_sched.v
 
+// ---- 权重 ROM（真实权重：wrom.hex 由 picture_and_para/gen_stim.py 生成）----
+rtl/conv2/conv_wrom/conv_wrom.v
+
 // ---- 顶层（本层，纯结构例化）+ 端到端 tb ----
 rtl/conv2/conv_top.v
 rtl/conv2/tb_top.v
 rtl/conv2/tb_top_full.v
+rtl/conv2/tb_top_real.v
 
 // ---- BRAM 片型（生成物）+ 仿真行为模型 ----
 ip/bram_10kb/bram_10kb.v

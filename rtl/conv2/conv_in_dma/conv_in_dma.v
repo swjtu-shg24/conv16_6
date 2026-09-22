@@ -29,7 +29,14 @@ module conv_in_dma #(
     parameter integer NBEAT = 60,        // ROWB/16
     parameter integer SLOTS = 12,
     parameter integer CPU   = 64,
-    parameter integer BANKS = 6
+    parameter integer BANKS = 6,
+    // ★ 输入量化开关（默认 0 = 老行为，逐位不变）：
+    //   1 = 把 DDR 里的原图字节 p（0..255）转成 Q4.4 有符号数据
+    //       q = (p - 124) >>> 3      （一个减法器 + 算术右移，无除法/查表）
+    //   依据：训练输入 x = 2p/255 - 1 ∈ [-1,1]，Q4.4 → round(32p/255 - 16)；
+    //         255 ≈ 256 时对全部 p 与 round((p-128)/8) 同解，四舍五入补偿 +4。
+    //   例：p=78 → 78-124 = -46 → -46>>>3 = -6（8bit 补码 0xFA），实际值 -6/16 = -0.375
+    parameter integer Q44_EN = 0
 )(
     input  wire         clk,
     input  wire         rstn,
@@ -82,10 +89,24 @@ module conv_in_dma #(
     wire [11:0] uu = slot*(3*CPU) + {e, 2'b00};
 
     // 插入后的缓冲（组合）
+    //   ★ Q44_EN=1：先在**字节级**做 p → Q4.4 转换，再插入组装缓冲
+    //     （band 里存的就是 Q4.4 数据，win_load 原样搬，conv_l1 再按有符号解释）
+    function [7:0] q44(input [7:0] p);
+        reg signed [8:0] d;
+        begin
+            d    = $signed({1'b0, p}) - 9'sd124;   // -124 .. +131
+            q44  = {{2{d[8]}}, d[8:3]};            // 算术右移 3 位（= 向下取整）
+        end
+    endfunction
+
     reg [319:0] abuf_ins;
+    reg [127:0] din_q;
+    integer     bi;
     always @(*) begin
+        for (bi = 0; bi < 16; bi = bi + 1)
+            din_q[bi*8 +: 8] = Q44_EN ? q44(rd_data[bi*8 +: 8]) : rd_data[bi*8 +: 8];
         abuf_ins = abuf;
-        abuf_ins[fill*8 +: 128] = rd_data;
+        abuf_ins[fill*8 +: 128] = din_q;
     end
 
     wire beat = rd_valid && (rd_data_id == RID) && (st == S_DATA);

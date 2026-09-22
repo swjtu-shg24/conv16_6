@@ -20,7 +20,8 @@ module conv_sched #(
     parameter integer NTILE_R   = 24,
     parameter integer NTILE_C   = 32,
     parameter integer ROW_STEP  = 10,    // 一个 tile 行推进的输入行数
-    parameter integer IH        = 240    // 输入面行数（用于把"需要的行数"钳到总行数）
+    parameter integer IH        = 240,   // 输入面行数（用于把"需要的行数"钳到总行数）
+    parameter integer CIN       = 3      // 输入通道数 = 每个 tile 要装几个窗口
 )(
     input  wire        clk,
     input  wire        rstn,
@@ -39,6 +40,15 @@ module conv_sched #(
     input  wire        win_req,        // 来自 conv_l1，单拍
     output wire        wl_start,       // 给 conv_win_load（★ 组合输出，见下）
     input  wire        wl_busy,        // 来自 conv_win_load
+    input  wire        win_vld,        // 来自 conv_win_load（预取完成判定用）
+
+    // ---- 给 conv_win_load 的坐标：平时 = 当前 tile，预取时 = 下一个 tile ----
+    output wire [4:0]  wl_tile_r,
+    output wire [5:0]  wl_tile_c,
+    output wire        pre_act,        // 预取进行中（conv_top 把 ch 强制成 0）
+
+    // ---- 给 conv_l1：下一个 tile 的 ch0 窗口已经预取好躺在 win_d 里 ----
+    output reg         ch0_rdy,
 
     // ---- 输入信用 ----
     output reg         rows_free,      // 单拍：放行 10 行
@@ -53,7 +63,53 @@ module conv_sched #(
     reg       l1_done_d;    // done 上升沿检测
     reg       pend_row;     // 跨 tile 行：等带填够
 
+    // ---- ch0 跨 tile 预取 ----
+    reg [3:0] wcnt;         // 本 tile 已经装过几个窗口（只数正常请求）
+    reg       pre_req;      // 预取请求已发出、等 win_load 收下坐标
+    reg       pre_pend;     // win_load 已收下、等窗口数据回来
+    reg       pre_done;     // 本 tile 的预取已经安排过（防重复）
+    reg       clr_pend;     // 延迟一拍清 ch0_rdy（让 conv_l1 在 l1_start 那拍仍能看到）
+    // ★ 预取目标坐标必须在**发出请求那一拍锁存**：请求可能因为 win_load 忙而
+    //   晚几拍才被收下，那时 tile_r/tile_c 可能已经翻到下一个 tile 了，
+    //   用组合推出来的 nxt_r/nxt_c 就会指错 tile（tb_sched 里假 conv_l1 跑得快，
+    //   正好把这个坑暴露出来了）。
+    reg [4:0] pre_r;
+    reg [5:0] pre_c;
+
     wire l1_done_p = l1_done & ~l1_done_d;
+
+    //------------------------------------------------------------------
+    // ★ ch0 跨 tile 预取
+    //
+    //   每个 tile 的第一个窗口（ch0）必须现要现等，白等 ~14 拍；而这个 tile 的
+    //   pw 相位有 50 拍、`win_load` 完全空闲。所以在本 tile 的 CIN 个窗口都装完
+    //   （= ch2 的窗口已经锁进 feature_map、`win_d` 空出来了）之后，趁 pw 把这
+    //   **下一个 tile 的 ch0** 窗口先装好，压在 `win_d` 里等下一个 tile 用。
+    //
+    //   只对"同一 tile 行的下一个 tile_c"做（tile 行内 band 的行不变，数据一定还在）；
+    //   跨 tile 行要等 DMA 补带，不做预取，退回原来的"现要现等"。
+    //------------------------------------------------------------------
+    wire [4:0] nxt_r = (tile_c == NTILE_C[5:0]-6'd1) ? (tile_r + 5'd1) : tile_r;
+    wire [5:0] nxt_c = (tile_c == NTILE_C[5:0]-6'd1) ? 6'd0 : (tile_c + 6'd1);
+    wire       nxt_same_row = (tile_c != NTILE_C[5:0]-6'd1);
+    wire       cur_is_last  = (tile_r == NTILE_R[4:0]-5'd1) &&
+                              (tile_c == NTILE_C[5:0]-6'd1);
+    //   ★ 必须同时卡 !pend_row：行末 `tile_c` 会在 l1_done 那拍立刻清 0，而
+    //     `tile_r` 要等 band 填够（pend_row 期间）才 +1；这段间隙里
+    //     tile_c 已经是 0、tile_r 还是旧行 → `nxt_same_row` 会误判成真，
+    //     于是发出一次**指向错行**的预取（真设计里等带快、间隙只有一拍才没暴露）。
+    wire       issue_pre = busy && !done && !pend_row &&
+                           !pre_req && !pre_pend && !pre_done &&
+                           (wcnt == CIN[3:0]) && nxt_same_row && !cur_is_last;
+
+    //   ★ 冲突时**正常请求优先**：wl_start 只有一根，如果正常 win_req 和预取
+    //     同拍到达，必须让正常请求先走（否则它会被当成预取、丢一次服务）。
+    wire       wl_norm_go = ((wl_pend != 6'd0) || win_req) && !wl_busy;
+    assign wl_start = wl_norm_go || (pre_req && !wl_busy);
+    assign pre_act  = pre_req && !wl_busy && !wl_norm_go;   // 本拍 start 是"预取"吗
+
+    assign wl_tile_r = pre_act ? pre_r : tile_r;
+    assign wl_tile_c = pre_act ? pre_c : tile_c;
 
     //------------------------------------------------------------------
     // ★ 窗口装载握手：wl_start 改成**组合**输出
@@ -67,8 +123,8 @@ module conv_sched #(
     //     · win_load 把自己的 busy 在 **S_RUN 最后一拍**就落 0，于是它的 S_DONE
     //       当拍就能看到 start，直接接着开下一个窗口（配合 conv_win_load 里的改动）。
     //   路径：conv_l1 的 win_req 寄存器 → wl_start → win_load 的 start（很短）。
+    //   （wl_start / pre_act 的 assign 见上面"ch0 跨 tile 预取"那一节）
     //------------------------------------------------------------------
-    assign wl_start = ((wl_pend != 6'd0) || win_req) && !wl_busy;
 
     // 起 tile 行 (tile_r+1) 之前需要的已写行数
     //   tile 行 k 要 rows 10k-1 .. 10k+10；k=NTILE_R-1 时 10k+10 会超出图像高度，
@@ -89,6 +145,12 @@ module conv_sched #(
             started   <= 1'b0;
             l1_done_d <= 1'b0;
             pend_row  <= 1'b0;
+            wcnt      <= 4'd0;
+            pre_req   <= 1'b0;
+            pre_pend  <= 1'b0;
+            pre_done  <= 1'b0;
+            clr_pend  <= 1'b0;
+            ch0_rdy   <= 1'b0;
         end else begin
             l1_start  <= 1'b0;
             rows_free <= 1'b0;
@@ -100,9 +162,37 @@ module conv_sched #(
 
             // ---- 窗口装载请求：pend 计数（wl_start 是组合输出，见上面的 assign）----
             //   "一进一出"当拍：pend 不变（新的那个补上刚走的那个）
-            if      (wl_start && win_req) wl_pend <= wl_pend;
-            else if (wl_start)            wl_pend <= wl_pend - 6'd1;
-            else if (win_req)             wl_pend <= wl_pend + 6'd1;
+            //   预取请求（pre_req）不走 pend，单独处理
+            if      (wl_start && !pre_act && win_req) wl_pend <= wl_pend;
+            else if (wl_start && !pre_act)            wl_pend <= wl_pend - 6'd1;
+            else if (win_req)                         wl_pend <= wl_pend + 6'd1;
+
+            // 本 tile 已经装过几个窗口（只数正常请求）
+            if (wl_start && !pre_act) wcnt <= wcnt + 4'd1;
+
+            // ---- ch0 跨 tile 预取 ----
+            if (issue_pre) begin
+                pre_req  <= 1'b1;
+                pre_r    <= nxt_r;      // ★ 发出当拍就把目标坐标锁存
+                pre_c    <= nxt_c;
+                // ★ pre_done 在**发出请求这一拍**就置：如果等 win_vld 才置，
+                //   万一窗口晚到（落进下一个 tile 的开头），就会把下一个 tile 的
+                //   预取也堵掉（tb_sched 里跑得快的假 conv_l1 正好暴露了这个）。
+                pre_done <= 1'b1;
+            end
+            if (wl_start && pre_act) begin
+                // win_load 这一拍就把坐标收下了（S_IDLE 的时钟沿）
+                pre_req  <= 1'b0;
+                pre_pend <= 1'b1;
+            end
+            if (pre_pend && win_vld) begin
+                pre_pend <= 1'b0;
+                ch0_rdy  <= 1'b1;      // 只有窗口真回来了才置"就绪"
+            end            // 延迟一拍清 ch0_rdy：保证它在 l1_start 那一拍对 conv_l1 仍然可见
+            if (clr_pend) begin
+                ch0_rdy  <= 1'b0;
+                clr_pend <= 1'b0;
+            end
 
             // ---- 起第一个 tile：等带填够 11 行 ----
             if (start) started <= 1'b1;
@@ -112,6 +202,14 @@ module conv_sched #(
                 tile_r   <= 5'd0;
                 tile_c   <= 6'd0;
                 l1_start <= 1'b1;
+                // ★ wcnt 要数"本 tile 已经覆盖了几个通道的窗口"：
+                //   若 ch0 是预取来的，conv_l1 不会再发 ch0 的 win_req，
+                //   初值就要记 1，否则 wcnt 永远到不了 CIN、下一个 tile 就不再预取
+                //   （症状：预取完美地隔一个 tile 生效一次）。
+                wcnt     <= ch0_rdy ? 4'd1 : 4'd0;
+                pre_done <= 1'b0;
+                pre_pend <= 1'b0;      // ★ 上一个 tile 的预取若还没回来就作废
+                clr_pend <= 1'b1;
             end
 
             // ---- 跨 tile 行：等带真正写好下一行需要的 rows 再启动 ----
@@ -120,6 +218,10 @@ module conv_sched #(
                 tile_r   <= tile_r + 5'd1;
                 tile_c   <= 6'd0;
                 l1_start <= 1'b1;
+                wcnt     <= ch0_rdy ? 4'd1 : 4'd0;
+                pre_done <= 1'b0;
+                pre_pend <= 1'b0;      // ★ 同上
+                clr_pend <= 1'b1;
             end
 
             // ---- 一个 tile 完成（取上升沿）----
@@ -136,6 +238,10 @@ module conv_sched #(
                 end else begin
                     tile_c   <= tile_c + 6'd1;
                     l1_start <= 1'b1;
+                    wcnt     <= ch0_rdy ? 4'd1 : 4'd0;
+                    pre_done <= 1'b0;
+                    pre_pend <= 1'b0;      // ★ 同上
+                    clr_pend <= 1'b1;
                 end
             end
         end

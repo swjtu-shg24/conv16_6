@@ -1,7 +1,304 @@
 # conv2 —— conv10_10 L1 前端（重写版）
 
-> 目标：DDR 里**已池化好的 320×240×3 RGB888** → L1(`dw3×3` + `pw1×1` + 量化 + 与 `2×2 max` 池化融合) → **160×120×8**
-> 器件 Ti60F225，片型只用 `ip/bram_10kb`（SDP 512×20），PE 用你原来的 `rtl/pe/pe.v` + `rtl/pe10_10/pe_10_10.v`（一行不改）。
+> 目标：DDR 里**已池化好的 320×240×3 RGB888** → L1(`dw3×3` + `pw1×1` + 量化 + **BatchNorm2d** + `2×2 max` 池化融合) → **160×120×8**
+> 器件 Ti60F225，片型只用 `ip/bram_10kb`（SDP 512×20），PE 用你原来的 `rtl/pe/pe.v` + `rtl/pe10_10/pe_10_10.v`。
+> **对 PE 只加了一个默认关闭的参数** `C_BIAS_EN`（0 = 老行为，逐位不变；1 = 把 `c_in` 加到 DSP 的 C 端口，
+> 给 BatchNorm 的 `+b` 用）—— 见 `rtl/pe/pe.v` / `rtl/pe10_10/pe_10_10.v` 和 `tb_pe_cbias`，其余一行没改。
+>
+> **BatchNorm2d**：`y = (bn_a*x + bn_b) >>> 8`（Q8 定点，clamp 0..255），插在 pw 量化出的 10×10 之后、2×2 max 之前。
+> 参数现在是**端口** `bn_a[0:7]/bn_b[0:7]`（逐 oc，由 `conv_wrom` 给真实网络的 model.2）；
+> 老 tb 仍传旧常数 384/2560，**逐位不变**。
+
+---
+
+## ★ 真实激励仿真（test.jpg + 真实权重 ROM）—— 后加的一层，先看这一节
+
+> 目的：不再用"公式造"的假图假权重（`(r*13+c*7+ch*29)%251` / `w=(i%9)+1`），
+> 而是把 **`picture_and_para/test.jpg`（真实图片）** + **`netG_B_epoch11.pth` 第一层权重** 灌进仿真，
+> 并把逐级数据导成表格 `picture_and_para/feature_maps_real.xlsx`，方便一个个数字对着看。
+
+### 定点口径（用户给定，全工程唯一口径）
+
+| 项 | 口径 |
+|---|---|
+| 数据 | **Q4.4 有符号 8bit**：`q = (p - 124) >>> 3`（p = DDR 里的原图像素 0..255） |
+| | 依据：训练 `x = 2p/255 - 1`，`q = round(x*16) = round(32p/255 - 16)`；255≈256 且四舍五入补偿 +4 |
+| | 硬件实现 = **一个减法器 + 算术右移 3 位**（无除法/无查表）。例：p=78 → -46>>>3 = -6 = `0xFA` → -0.375（训练值 -0.388） |
+| 权重 | **Q8**：`w_q = round(w*256)`，18bit 有符号 |
+| BN | `A_q = round(scale*256)`、`B_q = round(shift*4096)`；`scale = gamma/sqrt(var+eps)`、`shift = beta - mean*scale` |
+| | ★ `B_q` 额外 ×16：数据通路相对 Q4.4 有 16 倍增益，而 RTL 的再量化固定 `>>>8`（不这么编码 bias 就小 16 倍） |
+| 表里所有数字 | 都是 **Q4.4 寄存器值**，实际值 = 数字 / 16 |
+| 中间饱和 | **dw/pw：对称饱和 `[-128, 127]`**（真实网络在 dw/pw 处**没有**激活），负值保留 |
+| | **BN：饱和 `[0, 127]`** = **ReLU + 上限饱和**（真实网络是 `BN → ReLU → MaxPool`） |
+| | 对应 `conv_top` 的 `Q44_SAT=1` + `BN_RELU=1`；配套：pw 的 a 通路符号扩展、池化比较器改有符号 |
+| | （实测整帧：dwc/qq/bnq 撞到边界的点 **0 个** —— 极少越界，这个饱和只是兜底） |
+| 限位位置 | 统一放在 **PE 阵列输出**（`conv_top` 的 `PE_SAT=1`）：移位前一次饱和到 `[-32768, +32639]` |
+| | ★ 量纲是 Q4.4 的 256 倍（Q12.8），所以界是 32768 量级而不是 8；**HI 必须留 128** 给 `(x+128)>>>8`，写成 32767 会溢出成 −128 |
+| | ★ 与"三级各自限位"**逐位等价**：80 万点穷举 + 两遍整帧仿真（`-gPE_SAT_TB=0/1`）对同一份 golden 都 30720 unit 全对 |
+| | ★ `pe.v: assign PE_output = acc;` 是**组合**的 → 这是**零拍**改动，`c=13 / pc=7 / pc=4` 三个抓数点都不用动 |
+
+网络侧依据（`picture_and_para/cyclegna_mobilenet.py`）：
+`ReflectionPad2d(1) → DepthwiseSeparableConv2d(3,8) → BatchNorm2d(8) → ReLU → MaxPool2d(2,2)`，
+即 `model.1.depthwise.weight(3,1,3,3)` + `model.1.pointwise.weight(8,3,1,1)` + `model.2`；
+网络在 dw 前就做了 ReflectionPad2d(1)，与 `conv_win_load` 的 reflect-101 **逐点等价**。
+
+### 新增/改动的文件
+
+| 文件 | 作用 |
+|---|---|
+| `picture_and_para/stim_model.py` | 定点模型（**口径的唯一来源**）：量化、逐级算术、浮点参考 |
+| `picture_and_para/gen_stim.py` | 生成 `conv_wrom/wrom.hex`、`img_ddr.hex`、`golden_plane.hex`、`golden_tiles.txt` |
+| `picture_and_para/make_table.py` | 用 RTL 抓的 `real_dump.txt` + golden 生成 `feature_maps_real.xlsx` |
+| `conv_wrom/conv_wrom.v` | **权重 ROM**：67 个字 = 27 dw + 24 pw + 8 bn_a + 8 bn_b，`$readmemh` 初始化 |
+| `conv_wrom/tb_wrom.v` | ROM 自检（并行口 + 地址口逐字校验） |
+| `tb_top_real.v` | 真实激励端到端：整帧 + 3 个 tile 逐级抓数 + **30720 个 plane unit 全比对** |
+| `run_real.do` | 跑法：全量编译 + `tb_top_real` |
+| `conv_in_dma.v` | **+参数 `Q44_EN`**（默认 0 = 老行为）：字节级 `p → Q4.4` |
+| `conv_l1.v` | **+参数 `DW_SIGNED`**（dw 窗口符号扩展）；**BN 参数改成逐 oc 数组**；**+参数 `Q44_SAT`**（dw/pw 对称饱和 ±8、pw/BN 的 a 通路符号扩展、池化接 `SIGNED_CMP`）；**+参数 `BN_RELU`**（BN 后接 ReLU → `[0,127]`）；**+参数 `PE_SAT`**（限位挪到 PE 输出） |
+| `conv_cmp4_tree.v` | **+参数 `SIGNED_CMP`**（默认 0 = 无符号比较）：Q4.4 有符号数据必须置 1，否则 `0xFA`(-6) 会被当成 250 |
+| `conv_pool_arr.v` | 同上，把 `SIGNED_CMP` 透传给 25 棵比较树 |
+| `conv_top.v` | **+端口 `bn_a[0:7]/bn_b[0:7]`**，+参数 `Q44_EN/DW_SIGNED/Q44_SAT/BN_RELU/PE_SAT`（默认 0 → 老 tb 逐位不变） |
+| `picture_and_para/fpga_l1_int_dump.py` | **整数运算**复刻 RTL 口径的**独立实现**（torch 卷积 + numpy 移位），导出 `py_l1_bnq.npy`/`py_l1_pool.npy` 供对拍 |
+| `picture_and_para/compare_python.py` | 把任意来源的 Python 结果和 RTL 仿真逐点对拍（自动认形状/反量化并把差异定位到坐标） |
+| `picture_and_para/check_weights.py` | 验证 `.pth` 解析与你的 `netG_B_epoch11_weights.xlsx` 逐个数字一致 |
+| `picture_and_para/check_float_ref.py` | 用你的 `cyclegna_mobilenet.py` 建网装 `.pth`，验证本工程浮点参考逐点一致 |
+| `picture_and_para/eval_lianghua.py` `eval_lianghua2.py` | 评估 `lianghua_infer.py` 各版本的口径与 RTL 的差距 |
+
+### 验证链条（哪几环已经对过、哪一环还没）
+
+| # | 这一环 | 怎么验的 | 结果 |
+|---|---|---|---|
+| ① | `.pth` 解析 vs **你的** `netG_B_epoch11_weights.xlsx` | `check_weights.py` | **一致**（dw/pw 最大差 5.6e-17，BN 的 a/b 差 1.2e-6 只是表格显示位数） |
+| ② | 本工程浮点参考 vs **你的** `cyclegna_mobilenet.py` 官方前向 | `check_float_ref.py` | **一致**（dw 5.7e-8 / pw 7.0e-8 / BN 9.9e-7 / 池化 9.0e-7；state_dict 装载 0 缺 0 多） |
+| ③ | **RTL 仿真** vs 本工程定点模型 | `tb_top_real` | **逐点一致**：整帧 30720 unit 全对 + 3 个 tile 的 dwc/pwsum/qq/bnq/pool 0 处不一致 |
+| ④ | RTL vs **你的 Python 定点结果** | `fpga_l1_int_dump.py` + `compare_python.py` | ✅ **逐点一致**：0 / 153600 点不同，最大差 0 LSB（两条独立实现：torch 卷积 vs numpy 滑窗，互相也一致） |
+| ⑤ | 限位放 PE 输出 vs 放三级量化里 | `tb_top_real` 跑 `-gPE_SAT_TB=0/1` | ✅ **逐位等价**：两遍对同一份 golden 都 30720 unit 全对（另有 80 万点穷举验证） |
+
+①②③ 说明"参数没搞错、仿真算得对"，④ 说明"你的 Python 口径和 RTL 相同"，⑤ 说明"限位换位置不掉一位"。
+你要拿自己的 Python 结果对拍，只要它走**整数运算 + 这套口径**（Q4.4 输入 / Q8 权重 /
+`(Σ+128)>>8` 的 dw·pw / BN 用 `>>>8`（floor）+ ReLU / `A_q=round(scale*256)`、`B_q=round(shift*4096)` /
+reflect-101 / 有符号池化），结果必然一致；
+
+```bat
+:: 你的结果是 Q4.4 整数（和 golden 同口径）
+& 'D:\Users\Administrator\anaconda3\envs\cyclegan\python.exe' rtl\conv2\picture_and_para\compare_python.py 你的结果.npy
+:: 你的结果是反量化后的实际值（|x| <= 8 的小数），加 --deq 自动 ×16
+& 'D:\Users\Administrator\anaconda3\envs\cyclegan\python.exe' rtl\conv2\picture_and_para\compare_python.py 你的结果.npy --deq
+```
+
+形状随便：(120,160,8) / (8,120,160) / (160,120,8) / 拉平 153600 都能自动认；不一致会打印前 20 个坐标
+（y,x,oc + 你的值/RTL 值/实际值）并写出 `feature_maps_vs_python.xlsx`，还会给出按 oc 的分布，
+方便直接定位是哪一级口径不同。
+
+### 跑法（三步，都要在**工程根目录**）
+
+```bat
+:: ① 生成激励（用你的 conda cyclegan 环境，里面有 torch/numpy/openpyxl/PIL）
+& 'D:\Users\Administrator\anaconda3\envs\cyclegan\python.exe' rtl\conv2\picture_and_para\gen_stim.py
+:: ② 真实激励仿真：整帧 320x240x3 -> 160x120x8（约 3.5 分钟）
+vsim -c -do rtl/conv2/run_real.do
+:: ③ 生成数据变化表
+& 'D:\Users\Administrator\anaconda3\envs\cyclegan\python.exe' rtl\conv2\picture_and_para\make_table.py
+```
+
+### 表格内容（`feature_maps_real.xlsx`，17 个 sheet）
+
+| sheet | 内容 |
+|---|---|
+| `Params` | 口径说明、tile 列表、**RTL vs Golden 逐级比对结果**、已知偏差 |
+| `Weights` | 27 个 dw + 24 个 pw（Q8 整数 + 浮点），8 组 BN（A_q/B_q/scale/shift） |
+| `IN_t{tr}_{tc}` | 3 通道：Q4.4 输入 10×10 + **12×12 反射窗口**（都带实际值 /16） |
+| `DWC_t{tr}_{tc}` | 3 通道：**累加和**（量化前，十进制）→ **RTL dwc** → GOLD → 浮点×16 |
+| `PW_t{tr}_{tc}` | 8 个 oc：**Σ dwc*w_pw** → RTL qq → GOLD → 浮点×16 |
+| `BN_t{tr}_{tc}` | 8 个 oc：RTL bnq / 实际值 / GOLD / 浮点×16 |
+| `OUT_t{tr}_{tc}` | 8 个 oc：**池化 5×5**（就是写回 plane 的值）/ 实际值 / GOLD / 浮点×16 |
+
+抓的是 3 个 tile：**(0,0) 首个、(12,16) 最中间、(23,31) 最后一个**。
+"浮点×16"= 同一位置跑浮点（`x=2p/255-1`，dw→pw→BN→ReLU）×16，**和 RTL 直接可比，差多少就是定点损失**。
+RTL 与 Golden 不一致的点会**标红**。
+
+### 实测结果
+
+| 项 | 结果 |
+|---|---|
+| `tb_wrom` | **PASS**（67 字逐字校验） |
+| `tb_top_real` 整帧 | **PASS**：`done` @ **118,943 拍**（768 tile，154 拍/tile，与老 tb 完全一致 → 时序与数据无关） |
+| 整帧回读比对 | **30,720 个 plane unit 全对，失败 0**（不是抽样，是整帧逐字） |
+| 3 个 tile 逐级 | **DWC/PWSUM/QQ/BNQ/POOL 全部与 golden 一致（0 处不一致）** |
+| 限位位置等价性 | `PE_SAT=1` 与 `PE_SAT=0` 两遍都 **30720 unit 全对**（同一份 golden）→ **逐位等价** |
+| **Python vs RTL** | `fpga_l1_int_dump.py` 的整数结果与 RTL 仿真 **0/153600 点不同，最大差 0 LSB** |
+| 握手计数 | `win_req/wl_start/win_vld = 1560/2304/2304` ✓ 与整帧回归期望值一致 |
+| 老 tb | `tb_l1`/`tb_top`/`tb_top_full`/`tb_board`/`tb_cmp4_tree`/`tb_pool`/`tb_sched` 全部 **PASS**、校验和 `eb131b12a5` 不变（新参数默认 0，逐位中性） |
+
+数值分布（整帧 76800 点/通道，都是 Q4.4 寄存器值）：
+| 级 | 范围 | 备注 |
+|---|---|---|
+| `dwc` | −8..7 | **只有 9.1% 为 0**（最早是 0..7、54.7% 为 0） |
+| `qq` | −8..9 | **19.2% 为 0**（最早 0..5、69.8% 为 0），oc4/oc5 不再退化 |
+| `bnq` | 0..48 | ReLU 之后非负，实际值 0..3.00 |
+| 池化输出 | 0..48 | 实际值 0..3.00 |
+
+> 上表是**实例归一化参数**（`gen_stim.py` 现在的默认口径）下的分布；切回 `--bn-running` 时 bnq/池化是 0..70。
+
+> ★ **两次口径修正的来龙去脉**：
+> ① 最早三级量化都 clamp 到 `0..255`，对 Q4.4 数据等于在 dw、pw 输出各插了一个 ReLU，
+>    把一半特征图抹成 0（dw 输出本来就有正有负）→ 改成 **dw/pw 对称饱和 ±8**，负值保留；
+> ② 但真实网络是 `dw+pw → BN → ReLU → pool`：dw/pw 处**没有**激活，**BN 之后才有 ReLU**。
+>    所以 BN 的下限必须是 **0（ReLU）**、上限 127；这一步把池化输出从"37% 是负值"拉回全非负，
+>    也让 RTL 与你的 Python（同样有 ReLU）口径一致 —— 实测两者在此之前池化只有 33.6% 相同。
+> 表里的 `GOLD` 列就是同口径定点模型，`FLT×16` 列是浮点参考，方便直接对照你 Python 的数。
+
+### 验收门禁：定点误差 = 0（一条命令）
+
+> **设计要求**：RTL 仿真结果必须与**定点模型完全一致（定点误差 = 0）**；浮点误差不是硬性要求。
+> 双击 `rtl\conv2\check_fixed_point.bat`（或工程根目录执行它）即可跑完整门禁，四步全过才打印
+> `FIXED-POINT ERROR = 0 -- ALL CHECKS PASS`：
+
+| 步 | 做什么 | 判据 |
+|---|---|---|
+| 0 | `gen_stim.py` 重生成激励 + golden（口径的唯一来源） | 正常退出 |
+| 1 | `tb_top_real` 整帧 RTL 仿真 vs `golden_plane.hex` | `TB_TOP_REAL RESULT: PASS`、`30720 个 unit，失败 0` |
+| 2 | `make_table.py` 比对 RTL 抓的逐级数据 vs `golden_tiles.txt` | `RTL vs Golden 不一致点数 = 0` |
+| 3 | `fpga_l1_int_dump.py` **独立整数实现** vs RTL golden | `不一致点数 = 0 / 153600`、`MATCH` |
+
+**当前实测**：四步全过，逐点 0 差异（最大 \|差\| = 0 LSB）。
+
+> ⚠️ **注意"定点模型"指哪一份**：本工程的口径基准是 `stim_model.py`（numpy 滑窗）+
+> `fpga_l1_int_dump.py`（torch 卷积整数），**两者互相一致、也都与 RTL 逐点相同**。
+> 而 `picture_and_para/lianghua_infer.py` 是**浮点模拟量化**（float 卷积 + `round()` + hook），
+> 它不是整数定点：实测与 RTL 在 BN/池化上平均差 0.28 LSB、最大 24 LSB（BN 的 floor vs round
+> 被 ×21.6 的 scale 放大），**不能拿它当"定点误差 = 0"的判据**。要让它也对齐，需要把它的
+> 中间计算换成整数（`(Σ+128)>>8` / `>>>8` / `A_q=round(scale*256)`、`B_q=round(shift*4096)`）。
+
+### 定点推理出图（`gen_fpga_image.py`，实例归一化）
+
+> 用 RTL 的整数口径把 **L1** 算出来，其余层接浮点，最后出图肉眼对比。
+> **归一化用实例归一化**：模型是 batch_size=1 训练的，BatchNorm 的 `running_mean/var`
+> 就是最后一张训练图的统计量、本来就不对；bs=1 训练时 BN 干的事正是逐样本逐通道归一化
+> = InstanceNorm，所以脚本把 26 个 `BatchNorm2d` 全换成 `InstanceNorm2d`（γ/β 照抄）。
+> 产物在 `picture_and_para/fpga_images/`（含 `00_side_by_side.png` 拼图）。
+
+| 变体 | max\|d\| | mean\|d\| | PSNR | 说明 |
+|---|---|---|---|---|
+| A 基线（全浮点） | — | — | — | 参考 |
+| B 只量化输入 Q4.4 | 0.667 | 0.0388 | **31.24 dB** | 输入量化的代价 |
+| C **L1 定点**（现状增益）+ 其余浮点 | 0.787 | 0.0983 | **23.78 dB** | 肉眼接近，略偏黄/对比略强 |
+| E L1 定点 + **增益重分配**（dw 权重 ×8、A_q ÷8） | 0.637 | 0.0476 | **29.59 dB** | **几乎看不出差别** |
+| D 全层定点（Q8.8 权重 + 每层激活 Q4.4，**IN**） | 0.894 | 0.109 | **23.02 dB** | ≈ C，全层量化并不比只 L1 差多少 |
+| F 全层定点 + **BatchNorm(eval)** ＝ `lianghua_infer.py` 阶段2 | 1.073 | 0.137 | **20.74 dB** | 与它自己日志逐位一致 |
+
+结论：
+1. **L1 定点（现状增益）已经接近基线（23.8 dB）**；把 dw 权重 ×8、`A_q` ÷8（纯 ROM 数据改动）
+   后到 **29.6 dB，肉眼基本无差别** —— 收益最大的一步。
+2. 全层定点（D/F）与"只 L1 定点"（C）差不多（23.0 / 20.7 vs 23.8 dB），说明"每层都上 Q4.4"不是主要损失；
+   **真正决定画面的是归一化用哪一套**：BatchNorm(eval) 与 InstanceNorm 的**浮点基线本身**就差
+   `max|d|=0.957`（PSNR 21.26 dB），比定点化带来的差别还大。
+
+> ★ 三个坑（都是写这个脚本时踩的，已修）：
+> ① **实例统计量必须在实际值域里算**：`qq` 是 Q4.4 寄存器值（=16×实际值），直接 `qq.mean()/qq.var()`
+>    会把 `scale=γ/σ` 算小 16 倍 → 出图只有 15.9 dB（看着像"定点毁了图"）。换算到实际值域后 23.8 dB。
+>    **RTL/golden 那条链路没这个问题**（`stim_model` 的 scale/shift 本就是实际值域）。
+> ② **权重量化的 clamp 要按实际值域**：`round(w*256)` 之后应 clamp 到 **±32768**（= 实际值 ±128）；
+>    写成整数 ±128 会把所有 `|w|>0.5` 的权重削到 0.5（含 BN 的 γ≈1.06 → 0.5），图直接废掉
+>    （这就是我一度报出"D = 16.05 dB、发灰"的原因，实际 23.02 dB）。
+>    `lianghua_infer.py` 的 `quantize_q8_8` 是对的（clamp 实际值 ±128）。
+> ③ 它的 hook 还挂在 `DepthwiseSeparableConv/Conv2d` **包装类**上（残差 `out = out + x` 在包装类里做），
+>    所以残差相加那一步也量化；要复现它的数必须一起挂，而且 `importlib` 每次 exec 出的**类对象不同**，
+>    `mod` 必须在 `load_net()` **之后**取，否则 `isinstance` 失败、hook 少挂。
+
+### BN 再量化：截断 vs 四舍五入（`bn_round_test.py`）
+
+`conv_top` 新增 `BN_ROUND`（默认 0）：0 = `x>>>8` 直接截断；1 = `(x+128)>>>8` 四舍五入。
+实测（答案：**影响在噪声级，默认保持 0**）：
+
+| 口径 | BN mean\|d\| | 池化 mean\|d\| | 实例归一化出图 |
+|---|---|---|---|
+| 截断 `x>>>8`（默认） | 1.7443 LSB | 1.9828 LSB | L1 误差 0.0847，最终图 **23.78 dB** |
+| 四舍五入 `(x+128)>>>8` | 1.7408 LSB | 2.0028 LSB | L1 误差 0.0857，最终图 **24.15 dB** |
+
+两边基本打平（定点误差略差 1%，图像略好 0.4 dB）。原因：**误差主项不是 BN 自己的舍入**
+（只贡献约 0.04 LSB 的有符号偏差），而是 `qq` 的格点误差被 `scale`（3.4~23.4）放大。
+`BN_ROUND=1` 的路径也跑过整帧验证（配 `gen_stim.py --bn-round` 的 golden）：**30720 unit 全对**，随时可开。
+
+### ★ 目标与路线（先把整个网络跑通；实例归一化后续再进硬件）
+
+> **归一化不做到硬件里**：μ/σ 由 **Python 按当前这张图算**（浮点 = 理论值），编成 `A_q/B_q`
+> 灌进 ROM 交给 RTL —— RTL 里的 BN 算术本来就是"逐通道仿射"，**一行都不用改**，
+> 效果上就等于用上了实例归一化。真正的在线统计（两遍扫描 / 除法 / 开方）留到**后面优化**时再做。
+>
+> 依据：模型是 `batch_size=1` 训练的，`netG.train()` 时 BN 干的事就是逐样本逐通道归一化。
+> 实测（`check_inorm_equiv.py`）：`netG.train()` 与 `BatchNorm→InstanceNorm2d + eval()`
+> **逐位相同**（整网 max|d| = 0.000e+00，dw/pw/BN 逐层也是 0）。
+
+`gen_stim.py` 现在**默认就是实例口径**（`bn_mode="instance"`）：
+μ/σ 在整幅 240×320 上逐通道算 → `scale = γ/σ`、`shift = β - μ·scale` → `A_q = round(scale*256)`、`B_q = round(shift*4096)`。
+实测（test.jpg）：`σ = 0.057~0.268`、`A_q = 632~4073`（旧 running 口径是 `883~5978`）；加 `--bn-running` 可切回旧口径对比。
+
+**为什么统计量必须按整幅算**（`inorm_granularity_test.py`，L1 全定点、其余浮点）：
+
+| 统计粒度 | 硬件代价 | L1 mean\|d\| | 最终图 PSNR |
+|---|---|---|---|
+| **整幅 240×320（现在的做法：Python 离线算）** | 0 | 1.35 LSB | **23.78 dB** |
+| 每个 tile 行 10×320 | 缓存 10 行 qq ≈20 片 BRAM | 6.16 LSB | 13.49 dB |
+| 每个 tile 10×10 | tile 内 100 点缓冲 | 8.44 LSB（撞满量程） | 13.00 dB |
+
+→ 以后真要在硬件里做实例归一化，也**必须整幅**（= 两遍扫描）；按行/按块会把图打到 13 dB。
+
+**完整网络层次清单**（`MobileResnetGenerator(ngf=8, n_blocks=9)`，按 state_dict 的键解析）：
+
+| 级 | 结构 | 空间尺寸 | 通道 | 状态 |
+|---|---|---|---|---|
+| L1 | `ReflectionPad2d(1) + dw3×3 + pw1×1 + 归一化 + ReLU + MaxPool2` | 320×240 → 160×120 | 3→8 | ✅ 已实现、定点误差 0 |
+| L2 | `DSC(8→16) + MaxPool2`（dw3×3 → 归一化 → ReLU，pw1×1 → 归一化） | 160×120 → 80×60 | 8→16 | ⬜ |
+| L3 | `DSC(16→32) + MaxPool2` | 80×60 → 40×30 | 16→32 | ⬜ |
+| L4 | **9 × `DSC(32→32)` 残差块**（`out = out + x`） | 40×30 | 32→32 | ⬜ |
+| L5 | `ConvTranspose2d(32→16) + 归一化 + ReLU` | → 80×60 | 32→16 | ⬜ |
+| L6 | `ConvTranspose2d(16→8) + 归一化 + ReLU` | → 160×120 | 16→8 | ⬜ |
+| L7 | `ConvTranspose2d(8→8) + 归一化 + ReLU` | → 320×240 | 8→8 | ⬜ |
+| L8 | `ReflectionPad2d(3) + Conv2d(8→3, 7×7) + Tanh` | 320×240 | 8→3 | ⬜ |
+
+**每一层都照 L1 的套路做**（这是保证"定点误差 = 0"的唯一办法）：
+① 先定整数规格（数据/权重/归一化参数/饱和/舍入各在哪一步）→ ② Python 出整数 golden →
+③ RTL 实现 → ④ `tb` 逐点对拍，不一致必须为 0。
+
+**归一化参数怎么灌**：L1 现在是 8 组 `(A_q,B_q)` 写在 ROM 里。整网共 **26 个归一化层、688 组**
+`(A_q,B_q)`（≈24.8 kbit ≈ 3 片 BRAM）—— Python 一次算好，硬件做个"参数寄存器组 / 小 BRAM"按层切换即可，是很小的一块。
+
+### 定点误差：RTL 离"浮点理论值"有多远（`quant_error_report.py`）
+
+> 先分清三个对照物：**Python 整数模型 vs RTL 仿真 = 0 LSB（逐点完全相同，见上面的门禁）**；
+> 下面测的是 **RTL 定点链 vs 浮点理论值**，也就是"定点的代价"。单位 LSB = 1/16 = 0.0625 实际值。
+> ★ 这一节是**参考信息**：设计要求只要求"与定点模型相同（误差 0）"，浮点误差不是硬性指标。
+
+| 级 | 理论值范围（实际） | mean\|d\| | max\|d\| | RMS | 相对误差 | 相关系数 | 离理想 Q4.4 取整 |
+|---|---|---|---|---|---|---|---|
+| dw 输出 | −0.489..0.426 | 0.27 LSB | 0.98 LSB | 0.32 | 10.6% | 0.994 | **1.08 倍** |
+| pw 输出 | −0.502..0.513 | 0.30 LSB | 1.45 LSB | 0.37 | 16.6% | 0.988 | 1.20 倍 |
+| BN 输出(ReLU) | 0..4.907 | 1.74 LSB | 21.4 LSB | 3.17 | 19.0% | 0.963 | 12.4 倍 |
+| **池化输出** | 0..4.907 | **1.98 LSB**（0.124） | **20.3 LSB**（1.27） | 3.45 | 18.5% | 0.963 | 12.7 倍 |
+
+池化输出（160×120×8 = 153600 点）：平均绝对误差 **1.98 LSB = 0.124**，最大 **20.3 LSB = 1.27**，
+95% 分位 8.0 LSB，**52.2% 的点 ≤ 1 LSB**，按理论动态范围算 PSNR **27.2 dB**；逐 oc 差别大（oc0/oc1 因 scale 21.6/23.4 误差最大，约 4.0/4.3 LSB；oc2/oc6 只有 0.73/0.78 LSB）。
+
+**误差从哪来**：dw/pw 两级几乎就是理想取整（1.08 / 1.20 倍）→ **Q8 权重和整数舍入基本不花钱**；
+大头是 BN 把 qq 的 ~0.3 LSB 格点误差乘上 `scale`（3.4~23.4）再输出。
+而 `qq` 实际只用到 **±9**，Q4.4 量程是 ±127 —— **白白浪费了 3 bit 多**。
+
+**可选的改进（只改 ROM 里的数，RTL 一行不动）** —— ★ **当前不需要**（设计要求只要"与定点模型一致"，
+浮点误差不是硬指标），留在这里备查：把 dw 权重整体 ×8、`A_q` 同步 ÷8
+（层的数学完全不变，浮点理论值不变，只是把增益从 BN 挪到 dw 前面），实测：
+
+| 方案 | qq 范围 | 池化 mean\|d\| | 相对现状 |
+|---|---|---|---|
+| 现状 | −8..9 | 1.98 LSB | 100% |
+| dw 权重 ×8、A_q ÷8 | −65..67 | **0.52 LSB** | **26%** |
+| dw 权重 ×4、A_q ÷4（保守） | −33..34 | 0.65 LSB | 33% |
+| pw 权重 ×8、A_q ÷8 | −65..69 | 0.99 LSB | 50% |
+| dw ×8 且 pw ×8 | −128..127（饱和） | 2.16 LSB | 109% ← 过度放大反而变差 |
+
+即：**池化误差可以从 1.98 LSB 降到 0.52 LSB（相对误差 18.5% → 4.9%），代价只是换一份 ROM 数据**。
+注意 ×8 的余量是按 test.jpg 量的（worst case 理论上 dw 输出可到 ±20，换图要留神），保守一点用 ×4。
+
 
 ---
 
@@ -118,52 +415,89 @@ unit 总数 = 8*120*32 = 30,720  →  bank = unit mod 6, addr = unit/6 ∈ [0,51
 2. **`c=12` 抓只有 8 个乘积**（第 9 个还没进累加器）；`c=13` 抓才是完整的 9 乘积和。
    验证：窗口只留第 9 个核位置 =1、权重给 `(t+1)<<8` 时，`c=12` 抓出来 `dwc=0`、`c=13` 抓出来 `dwc=9`。
 
-### L1 pw / 池化 / 写回的实测时序（同一个 tb 验的）
+### L1 pw / BatchNorm / 池化 / 写回的实测时序（同一个 tb 验的）
 
-**pw 相位（直接相乘 `op=0`）—— 软件流水：一个 oc 的"格"15 拍，但相邻 oc 只隔 5 拍**
-
-先看**一个 oc 自己的格**（`pc` 相对该 oc 的起点）：`pc=0..14`
+#### ① 先看一个 oc 自己的"格"（`pc` 相对该 oc 的起点，`pc=0..7`，**8 拍**）
 
 | pc | 动作 |
 |---|---|
-| `0..2` | `fm_wdata_en<=1`、`pw_cin<=pc` → 于是 **pc=1,2,3 各载入一次** `dwc[pw_cin]`（`pw_cin` 寄存后滞后一拍） |
+| `0` | `fm_wdata_en<=1`、`pw_cin<=0` → **pc=1 载入 `dwc0`**（`pw_cin` 寄存后滞后一拍） |
+| `1,2` | `fm_wdata_en<=1`、`pw_cin<=1,2` → **pc=2,3 载入 `dwc1`,`dwc2`** |
 | `1..3` | `pe_lb <= w_pw[oc*3 + pc-1]` → lb 在 **pc=2,3,4** 分别是 `w_pw[oc*3+0..2]` |
 | `1..3` | **`acc_en_pw=1`** —— 正好是"逐拍喂 `w_pw[oc*3+0..2]`"的那 3 拍 |
-| `4` | `acc_en` 无效 → `acc` 被 `dsp_o` 装载成**第 1 个乘积**（顺带清掉上一个 oc 的残值，不需要额外复位） |
+| `4` | `acc_en` 无效 → `acc` 被 `dsp_o` 装载成**第 1 个乘积**（顺带清掉上一个 oc 的残值） |
 | `5,6` | PE 内部 `acc <= acc + dsp_o`（第 2、3 个乘积到达） |
 | `7` | `qq <= quant(peo)` —— **`peo` 就是 p1+p2+p3**（阵列外不再有 `pacc`） |
-| `8..9` | `pl_en=1` **连续两拍** |
-| `10..14` | 写回 5 行 |
 
 推导依据（实测）：`peo(k) = A(k-2)*B(k-2)`，其中 `A(k)`（即 `input_reg_a[0]`）= `feature_map(k-1)` = **载入值(k-2)**，
 `B(k)`（即 `input_reg_b`）= `load_b_in(k-1)`。所以 a 走 `wdata_en` 比 b 多一级流水，两者的"拍"必须错开。
+更精确的、**BN 以后逐拍对齐用的**式子（`c_bn`、`bnq` 就是按它排的）：
+
+```
+dsp_o(t)  = fm_la(t-2) * pe_lb(t-2) + C(t)        ← C 是 DSP 的 C 端口（组合进加法器）
+pe_out(t) = acc(t)                                 ← acc(组合输出)，acc 只在时钟沿更新
+acc 在 acc_en=0 的拍被 dsp_o 装载，acc_en=1 的拍做 acc += dsp_o
+```
 
 **累加搬进 PE**（原来在阵列外做 `pacc[0:99]`）：`dsp_o` 上第 1/2/3 个乘积落在 **pc=4/5/6**，
 所以只需要"pc=4 不累加、pc=5/6 累加"，反推 `acc_en_pw` 要在 **pc=1,2,3** 拉高（见 F8 的"后移 3 拍、少 1 拍"）。
-结果是 pc=7 的 `peo` = p1+p2+p3，与原来的 `pacc + peo` 拍号完全一致 → 改动逐位等价
-（`tb_board` 校验和仍是 `c2eaf2eaaf`）。契约由 `tb_pe_rules` 的 **T7** 钉死。
+结果是 pc=7 的 `peo` = p1+p2+p3。契约由 `tb_pe_rules` 的 **T7** 钉死。
 
-**流水化**：一个 oc 的 15 拍里，各阶段用的**资源互不重叠** —— `feature_map`/DSP/`acc` 在 pc=1..6、
-`qq`/池化树在 pc=7..9、plane 写口在 pc=10..14。所以把相邻 oc 的起点从 15 拍**提前到 5 拍**，
-三个 oc 错开叠起来跑（格内时序一拍不改）。令 `oc` = 组号 g（正在"喂"的 oc）、`pc` = 组内位置 m：
+#### ② BatchNorm2d 插进来以后：格从 5 拍变 8 拍
+
+BN 的位置是 **pw 量化出的 10×10（`qq`）之后、2×2 max 池化之前**，算 `bnq = (bn_a*qq + bn_b) >>> 8`（clamp 0..255）。
+实现上**不新增任何乘法器**：复用这 100 个 PE —— 把 `qq` 经 `fm_wdata_en` 装回 `feature_map` 的左上 10×10，
+`b` 广播 `bn_a`，`bias` 走 DSP 的 **C 端口**（`pe` 的 `C_BIAS_EN=1` 时 `N_SEL="C"` 且 `W_SEL="X"` → `O = A*B + C`）。
+
+因为是软件流水，BN 的 1 个乘积和 pw 的 3 个乘积**在同一个 DSP 上错开排**，每组（组号 g = 正在喂的 oc）8 拍：
+
+| m | 喂 a（`fm_wdata_en`） | 喂 b（`pe_lb`） | DSP 的 C | 这一拍拿到什么 |
+|---|---|---|---|---|
+| `0` | **`qq`**（`bn_load=1`，来自上一组 m=7 写好的 `qq`） | — | 0 | — |
+| `1` | `dwc0`（`pw_cin=0`） | **`bn_a`** | 0 | — |
+| `2` | `dwc1` | `w0` | 0 | — |
+| `3` | `dwc2` | `w1` | **`bn_b`** | — |
+| `4` | — | `w2` | 0 | `pe_out(4) = qq*bn_a + bn_b` → **`bnq`**；同时 `dsp_o(4)=dwc0*w0` 被 acc 装载 |
+| `5` | — | — | 0 | `dsp_o(5)=dwc1*w1` → `acc +=`；**`pl_en` 第 1 拍**（池化 oc-1） |
+| `6` | — | — | 0 | `dsp_o(6)=dwc2*w2` → `acc +=`；**`pl_en` 第 2 拍** |
+| `7` | — | — | 0 | `pe_out(7)` = p1+p2+p3 → **`qq`**；置起下一组的 `fm_wdata_en`/`bn_load`；装载写回基底 |
+
+推导（把上面的式子代进去，**这就是为什么 m=0 载 qq、m=4 才抓 `bnq`**）：
+
+* m=0 载 `qq` → `fm_la(1)=qq`；m=0 那拍给 `pe_lb` 赋 `bn_a` → `pe_lb(1)=bn_a`；m=3 给 `C=bn_b`
+  → `dsp_o(3) = qq*bn_a + bn_b`；`acc_en(3)=0` ⇒ `acc(3) = dsp_o(3)`；`pe_out(4) = acc(3)` ✔
+* m=1 载 `dwc0` → `fm_la(2)=dwc0`；m=1 那拍给 `pe_lb` 赋 `w0` → `pe_lb(2)=w0` → `dsp_o(4)=dwc0*w0` = p1 ✔
+* m=2/3 同理给 `dsp_o(5)/dsp_o(6)` = p2/p3 ✔（**这三拍的 `C` 必须是 0**，所以 `c_bn` 只在 m=3 非零）
+* m=4 的 `pe_out` 抓 `bnq`，而 m=4 同时是"acc 装载 p1"那一拍 —— 抓数读的是沿**之前**的值，
+  装载发生在沿上，两者互不干扰（这正是流水能叠起来的地方）
+* m=5,6 池化（连续两拍），池化结果 m=7 就绪 → **下一组的 m=0..4 正好读它写回**（写回的是 oc-2）
+
+**流水化**：令 `oc` = 组号 g（正在"喂"的 oc）、`pc` = 组内位置 m，则
 
 | m | 喂 oc（组号 g） | 算 oc-1 | 写回 oc-2 |
 |---|---|---|---|
-| 0 | a=dwc0/b=w0 起头 | `acc += p2` | row0 |
-| 1 | a=dwc1/b=w1 | `acc += p3` | row1 |
-| 2 | a=dwc2/b=w2 | `qq <= quant(peo)` | row2 |
-| 3 | b=w2 收尾 | `pl_en` 第 1 拍 | row3 |
-| 4 | `acc` 装载 p1 | `pl_en` 第 2 拍 | row4 + 装载下一个 oc 的地址基底 |
+| 0 | 载 `qq`（**给 BN 的 a**）+ `bn_a` | BN 的 a/b 进流水 | row0 |
+| 1 | 载 `dwc0` + `w0` + `acc_en_pw` | — | row1 |
+| 2 | 载 `dwc1` + `w1` + `acc_en_pw` | — | row2 |
+| 3 | 载 `dwc2` + `w2` + `acc_en_pw`、`C=bn_b` | — | row3 |
+| 4 | `acc` 装载 p1 | `bnq <= BN(peo)` | row4 + 装载下一个写回基底 |
+| 5 | — | `pl_en` 第 1 拍 | — |
+| 6 | — | `pl_en` 第 2 拍 | — |
+| 7 | 量化 → `qq`；置起下一组的 BN 载入 | — | — |
 
-映射关系：oc 的 `pc=0..4` → 组 oc，`pc=5..9` → 组 oc+1，`pc=10..14` → 组 oc+2
-（所以 `acc_en_pw` 在组 g 的 m=1,2,3 拉高，实际累加落在组 g+1 的 m=0,1 = oc=g 的 pc=5,6）。
+一个 oc 从"开始喂"到"写完"跨 3 组 = 24 拍，但**吞吐是 8 拍/oc**：`S_PW` = (COUT+2) × 8 = **80 拍**。
 
-**为什么是 5 拍、不能再快**：plane 写口 1 unit/拍，一个 oc 要写 5 个 unit（5 行），
-所以相邻 oc 的写回至少隔 5 拍；且 oc-2 的写回要读完 `pl_dout`（5 拍）之后，oc-1 的新池化结果
-才能覆盖它（否则 row4 被冲掉）。5 拍正好把写口打满 —— 这是**硬下限**：8 oc × 5 unit = 40 unit。
+**为什么是 8 拍、不能再快**：
+① plane 写口 1 unit/拍，一个 oc 要写 5 个 unit（5 行）⇒ 相邻 oc 的写回至少隔 5 拍（m=0..4）；
+② 池化结果必须在写回**读完** `pl_dout` 之后才能覆盖它 ⇒ `pl_en` 只能排到 m=5,6；
+③ BN 的 a 只能从 m=0 载（`qq` 要到上一组 m=7 沿才有效），于是 pw 的 3 个 a 被迫排到 m=1,2,3，
+   乘积落在 `dsp_o` 的 m=4,5,6，量化落在 m=7。
+⇒ m=0..7 全部占满，**8 拍就是这一版的硬下限**。8 oc × 5 unit = 40 unit 的写口占用率 = 61/80 = 76%。
 
-实测（`tb_l1_time`）：`S_PW` **120 → 50 拍**，整个 tile **172 → 102 拍**（`S_WREQ`3 + `S_WWAIT`6 + `S_DW`42 + `S_PW`50 + `S_DONE`1），
-`p2_wr_en` 仍是 40 次。**校验和不变**（`c2eaf2eaaf`）→ 逐位等价。
+实测（`tb_l1_time`）：`S_PW` **50 → 80 拍**，整个 tile **96 → 126 拍**（`S_WREQ`1 + `S_WWAIT`2 + `S_DW`42 + `S_PW`80 + `S_DONE`1），
+`p2_wr_en` 仍是 40 次、`fm_wdata_en` 32 次、`win_req` 在 pw 相位仍是 **0 次**。
+**代价换来的是数据变了** → 校验和从 `c2eaf2eaaf` 变成 `eb131b12a5`（`tb_board` 已按新值更新）。
+
 
 ### L1 dw 相位：窗口预取 + 握手去延迟
 
@@ -195,13 +529,33 @@ unit 总数 = 8*120*32 = 30,720  →  bank = unit mod 6, addr = unit/6 ∈ [0,51
    `S_DONE`（同时在做 `wbuf → win_d` 转储）当拍就能看到 `start`，直接接着开
    下一个窗口，省掉一次 `S_IDLE`。
 
+3. **ch0 跨 tile 预取**（`conv_sched` + `conv_l1`）：
+   每个 tile 的第一个窗口（ch0）原本要"现要现等"约 14 拍，而这个 tile 的 pw 相位
+   有 50 拍、`win_load` 完全空闲。所以在**本 tile 的 CIN 个窗口都装完之后**
+   （此时 ch2 的窗口已锁进 `feature_map`、`win_d` 空出来了），趁 pw 把
+   **下一个 tile 的 ch0** 窗口先装好、压在 `win_d` 里，下一个 tile 直接用。
+   `conv_l1` 在 `S_IDLE` 看到 `ch0_rdy=1` 就跳过 `S_WREQ/S_WWAIT` 直接进 `S_DW`。
+   只对"同一 tile 行的下一个 `tile_c`"做（行内 band 的行不变，数据一定还在）；
+   跨 tile 行要等 DMA 补带，退回原来那条路。
+   实测：32 个 tile 里 **28 个**吃到预取（4 个是行首），`S_WREQ` 16 → **4 拍**。
+
+| | 改前 | 改后 |
+|---|---|---|
+| `S_WREQ` | 3 | **1** |
+| `S_WWAIT`（等 `win_vld`） | 54（18/窗口） | **30**（10/窗口） |
+| 小计（真实 `conv_top`） | 150 | **126** |
+
+加上第 3 步之后（`tb_top`，32 tile）：`S_WREQ` **4**、`S_WWAIT` **320/32 = 10 拍/tile**、
+`S_DW` 42、`S_PW` 50、`S_DONE` 1 → **174 拍/tile**（最初 221）。
+
 **理论下限**：一个 12×12 窗口要读 12 行，每行 1 次 band 访问（行距 192 unit，没法合并），
 band 读口 1 次/拍 ⇒ **12 拍/窗口**是硬下限（现测 `S_RUN` = 13 拍）。
 3 通道 × 12 = **36 拍/tile** 是 dw 相位"窗口侧"的极限；再加上最后一个通道的结果
-要 `start+13` 才出来（PE 契约），dw 相位极限约 **49~52 拍**（现在 67）。
-要再压下去需要：`conv_win_load` 的 `S_RUN` 流式化（双缓冲 `wbuf`，让 12 次读背靠背）
-＋ `conv_l1` 的 `S_DW` 改成 **9 拍节拍**（`start` 间隔 9 拍、结果仍在 `start+13` 抓；
-这个节拍已由 `tb_pe_dw_stream` 在 `CAD=9` 下用 4 次**不同窗口 + 不同权重**的卷积验证通过）。
+要 `start+13` 才出来（PE 契约），dw 相位极限约 **49~52 拍**。
+要再压下去需要：`conv_win_load` 的 `S_RUN` 流式化（双缓冲 `wbuf`，让 12 次读背靠背、
+去掉每窗口那 1 拍 `S_DONE`）＋ `conv_l1` 的 `S_DW` 改成 **9 拍节拍**
+（`start` 间隔 9 拍、结果仍在 `start+13` 抓；这个节拍已由 `tb_pe_dw_stream` 在 `CAD=9` 下
+用 4 次**不同窗口 + 不同权重**的卷积验证通过）。
 
 ★ **关键**：`feature_map_12_12` 的 `load_a_in` 只能来自它内部的 `feature_map[]`，
 所以直接相乘的 a 数据**必须经 `wdata_en` 装进 12×12 图的左上 10×10**（这就是"放在左上区域"的真正含义）。
@@ -334,7 +688,7 @@ rtl\conv2\run_wave.bat small
 | M6 | `conv_sched` + `conv_top`（顶层写在本层，纯结构例化）+ 端到端 `tb_top` | ✅ |
 | M7 | 整帧回归 320×240×3 → 160×120×8 + 资源/时序 | ⬜ 待写 |
 
-### 自检结果（13 个 tb 全 PASS）
+### 自检结果（15 个 tb 全 PASS）
 
 | 模块 | tb | 验什么 | 结果 |
 |---|---|---|---|
@@ -346,12 +700,13 @@ rtl\conv2\run_wave.bat small
 | `conv_in_dma` | `tb_dma` | 240 行 DDR→band 全搬；**16B→20B 字节重对齐**；`rows_free` 信用真能挡停生产者；前 11 行 + 末 12 行共 4608 个 unit 逐字节比对 | **PASS** |
 | `conv_l1`（dw 专项） | `tb_l1_dw` | 9 个核位置单点置 1 定映射；扫 (权重偏移, 拍号) 定抓数拍；3 通道 × 100 PE 全量对拍 | **PASS** |
 | `pe_10_10` 使用契约 | `tb_pe_rules` | PE 规则 8 项；**T7 = 直接相乘 + `acc_en_pw` 内部累加**（照 `conv_l1` 的 pw 相位驱动，pc=7 的 100 个 lane = `a0*w0+a1*w1+a2*w2`） | **PASS** |
+| `pe_10_10` DSP C 端口 bias | `tb_pe_cbias` | **`O = A*B + C`**：`C_BIAS_EN=1` 的阵列必须拿到 `a*x+b`（5 组 a/x/b，含负 bias、饱和区），`C_BIAS_EN=0` 的阵列必须**完全忽略** `c_in`（逐位回归）；**钉死 `N_SEL="C"` 必须配 `W_SEL="X"`** | **PASS** |
 | `pe_10_10` 流式累加 | `tb_pe_pw_stream` | **F9**：`acc_en_pw` 全程拉高 + `acc_clr` 分组 → 两组各 8 项**连续累加、零空拍**；`dsp_o` 逐拍 +1（每拍一个新乘积） | **PASS** |
 | `pe_10_10` 3×3 背靠背 | `tb_pe_dw_stream` | 4 次复用卷积，**窗口与权重每次都不同**，`start` 间隔 **9 / 10 / 14** 拍 → 每次都在 `start+13` 处 100/100 全匹配（证明 dw 的"格"是 **9** 拍，不是 14） | **PASS** |
-| `conv_l1`（整片） | `tb_l1` | dw → pw → 量化 → **池化** → **写回**；8 oc × 5×5 池化结果 + plane 写口的 40 个 unit（地址 + 数据）全对 | **PASS** |
+| `conv_l1`（整片） | `tb_l1` | dw → pw → 量化 → **BatchNorm2d** → **池化** → **写回**；8 oc × 5×5 池化结果 + plane 写口的 40 个 unit（地址 + 数据）全对 | **PASS** |
 | `conv_sched` | `tb_sched` | tile 序列（r,c）逐拍核对；`l1_start`/`wl_start`/`rows_free` 次数；等带填满才起第一个 tile；`done` | **PASS** |
 | `conv_plane` | `tb_plane` | 30,720 unit 全写全读；seg 0..9；读延迟=1 | **PASS** |
-| **端到端** | `tb_top` | `conv_top` 小图 **80×40×3 → 40×20×8**（32 个 tile，所有地址/反射关系与整帧一致）；`done` 到达 + **1280 个 plane unit 逐字节对拍** | **PASS** |
+| **端到端** | `tb_top` | `conv_top` 小图 **80×40×3 → 40×20×8**（32 个 tile，所有地址/反射关系与整帧一致）；`done` 到达 + **1280 个 plane unit 逐字节对拍**（黄金含 BN） | **PASS** |
 
 ### 踩坑记录（本工程）
 
@@ -382,6 +737,16 @@ rtl\conv2\run_wave.bat small
 | 23 | **流水化时"谁在什么时候用 `pl_dout`"必须逐拍对齐，否则最后一行的写回被冲掉** | oc 的池化结果在它的 row0 写回那一拍才就绪，直到 row4 写完才允许被下一个 oc 的 `pl_en` 覆盖。本设计靠"oc-2 写回 5 拍 / 下一个池化 en 在 m=3,4"天然错开；但最后一组（`oc=COUT+1`，对应无效的 `oc-1=COUT`）必须把 `pl_en` 卡掉，否则会在 `COUT-1` 的 row4 写回当拍把 `pl_dout` 冲掉 |
 | 24 | **dw 窗口预取发早了 → `feature_map` 锁到下一个通道的窗口** | `fm_wdata_en` 在 `c=0` 置起、**`c=1` 才有效**，`feature_map` 是在 **`c=1` 那一拍的时钟沿**采 `win_d` 的。所以预取请求**必须等到 `c=1`** 再发：更早发（比如 `S_WWAIT` 那一拍）时，`win_load` 回来的新窗口会在 `c=1` 之前就把 `win_d` 覆盖掉。症状：`tb_l1_dw` 直接 FAIL、`tb_l1` 的 pool 全错 |
 | 25 | **把握手寄存改成组合，能一次省掉 2~3 拍，但要同时照顾"对端什么时候能接"** | `wl_start` 由寄存器改组合后，`win_req → wl_start` 从 2 拍变 0 拍；但要让 `win_load` 的 `S_DONE` 当拍就能接下一个窗口，它必须把 `busy` 在 **`S_RUN` 最后一拍**就落 0（否则 `wl_start` 的组合条件 `!wl_busy` 在 `S_DONE` 当拍不成立）。pend 计数也要改成"一进一出当拍不变"（`wl_start && win_req` 时 `wl_pend` 保持） |
+| 26 | **预取请求要"发出当拍锁存目标坐标"，不能用组合从当前 tile 推** | 请求可能因为 `win_load` 忙而晚几拍才被收下，那时 `tile_r/tile_c` 可能已经翻到下一个 tile 了，组合推出来的 `nxt_r/nxt_c` 就指错 tile。`tb_sched` 的假 `conv_l1` 跑得快，正好把这个坑踩出来（真设计里 tile 很长所以侥幸没暴露） |
+| 27 | **`wcnt` 要按"本 tile 已经覆盖了几个通道的窗口"计数** | ch0 是预取来的时候，`conv_l1` **不会再发 ch0 的 `win_req`**，`wcnt` 只数到 2、永远 `!= CIN` → 下一个 tile 不再预取 → 症状是"**预取完美地隔一个 tile 生效一次**"（`issue_pre` 16/32）。tile 起点要写 `wcnt <= ch0_rdy ? 1 : 0` |
+| 28 | **行末 `tile_c` 先清 0、`tile_r` 后 +1 的"间隙"里会误判成同一行** | 跨 tile 行时 `tile_c` 在 `l1_done` 那拍就清 0，而 `tile_r` 要等 band 填够（`pend_row` 期间）才 +1。这段间隙里 `(tile_r, tile_c)` 看起来像 `(旧行, 0)`，`nxt_same_row` 误判为真 → 发出一次**指向错行**的预取，`ch0_rdy` 会指错窗口。`issue_pre` 必须加 `!pend_row` |
+| 29 | **`wl_start` 只有一根，正常请求和预取同拍时必须让正常请求优先** | 否则正常 `win_req` 会被当成预取、丢掉一次服务（`tb_sched` 里表现为某些 tile 的 `wl_start` 次数变成 2 或 4）。做法：`wire wl_norm_go = ((wl_pend!=0)||win_req) && !wl_busy;`，`wl_start = wl_norm_go || (pre_req && !wl_busy);`，`pre_act = pre_req && !wl_busy && !wl_norm_go;`，并且**用 `pre_act`（而不是 `pre_req`）来判断分类** |
+| 30 | **光把 `N_SEL` 改成 `"C"` 是拿不到 bias 的：`W_SEL="P"` 会把加法器整个绕过去** | `efx_dsp48.v` 里是 `assign W = (W_SEL=="P") ? P_a : W_p;` —— `W_SEL="P"` 时 `W = P_a`（乘法结果），`M+N` 被旁路，`c_in` 加了也看不见（实测 `b=1000` 只出来 `3`）。必须同时 `N_SEL="C"` **且** `W_SEL="X"`（原语里 `W_SEL` 只允许 `"P"`/`"X"`）。写 `"W"` 会被 `efx_dsp48.v` 判非法直接 `$finish`。`N_SEL="CONST0"` 时 `X = P_a + 0`，所以这个改动对老行为**逐位中性**（`tb_pe_cbias` 两组阵列对比验的） |
+| 31 | **DSP 的 C 端口是"组合进加法器"的，所以 bias 和乘积在时序上并不自动对齐** | 实测 `dsp_o(t) = fm_la(t-2)*pe_lb(t-2) + C(t)`：C 必须在"`pe_out` 读到乘积的**前一拍**"给出。BN 里写成了 `c_bn` 只在 m=3（`pe_out(4)` 读 `dsp_o(3)`）非零；**m=4/5/6 必须是 0**，否则那三个乘积会被一起加上 bias。`tb_pe_cbias` 里 bias 是常数全程保持所以看不出来，逐拍对齐必须自己算 |
+| 32 | **`bn_load` 多拉高一拍 = 把 pw 的第一个 a（`dwc0`）冲掉** | `fm_wdata` 的 mux 是 `bn_load ? qq : dwc[pw_cin]`，而 `bn_load` 是寄存器：在 m=7 置起、要**在 m=0 清掉**（不是 m=1）。m=1 才清的话，m=1 那一拍的 fm 载入也拿到 `qq`，于是 p1 变成 `qq*w0` 而不是 `dwc0*w0`（症状很隐蔽：`qq` 只是略微偏小，池化 max 之后大部分点还是一样，只有个别点差 1） |
+| 33 | **BN 只在 `oc < COUT` 时置起 `bn_load`，第一组必须算进去** | `qq` 是"本组 m=7 沿"才写好的，BN 的 a 要到**下一组 m=0** 才能载入，所以 m=7 置 `bn_load` 的条件是**本组 oc < COUT**（g=0 也算）。原来写成 `oc>=1 && oc<=COUT`：g=0 不置起 → 第一组算 BN 时 `fm_la` 还是上一个 dw 窗口的残值（实测 `pe_out(4)=16768=384*37+2560` 而不是 `2944=384*1+2560`），池化结果全偏（`tb_l1` 报 `got 67 exp 11`） |
+| 34 | **`ch0_rdy` 悬空成 `z` 会"碰巧能跑"，接成 `1` 反而错** | `tb_l1` 原来没接这个新端口（`z` 在 `if` 里当假 ⇒ 等价于 0，正好是 tb 想要的"不做跨 tile 预取"）。后来显式接 `1'b1` 时，`conv_l1` 以为 ch0 窗口已经预取好、**不再发 ch0 的 `win_req`** → 3 个通道只装到 2 个，个别池化点 `got 10 exp 11`。tb 里要显式接 **`1'b0`** |
+| 35 | **别用 PowerShell 的 `Get-Content`/`Set-Content` 改这些源文件** | 源文件是 UTF-8（无 BOM），`Set-Content` 会按 ANSI 写回 → 中文注释全变成 `?`、行还会被并到一起（`tb_board.v` 被整片毁过一次，靠 `git checkout` 救回来）。改文件一律用编辑工具（保留编码） |
 
 ### 综合（GUI）当前进展与卡点
 
@@ -456,8 +821,8 @@ Setup worst slack : -0.118 ns
 | 项 | 结果 |
 |---|---|
 | `tb_l1` | **PASS** |
-| `tb_board` | **PASS**，校验和仍为 `c2eaf2eaaf` |
-| `tb_top_full`（整帧 320×240×3→160×120×8） | **PASS**，抽样 320 个 plane unit **0 失败**，`win_req/wl_start/win_vld = 2304/2304/2304`，187,254 拍 |
+| `tb_board` | **PASS**，校验和 `eb131b12a5`（★ BN 插入后重取；BN 前是 `c2eaf2eaaf`） |
+| `tb_top_full`（整帧 320×240×3→160×120×8） | **PASS**，抽样 320 个 plane unit **0 失败**，`win_req/wl_start/win_vld = 2304/2304/2304`，**118,943 拍**（BN 后；BN 前 95,903） |
 
 **下一步**：用 `conv_board_inf.xml` 重新跑 PnR，把新的 timing report 发我 ——
 这条校验和路径拆掉之后，才能看到真正的下一条关键路径（预计会落到
@@ -472,7 +837,7 @@ Setup worst slack : -0.118 ns
 | 文件 | 说明 |
 |---|---|
 | `conv_board_top.v` | 板级顶层：内部假 DDR（`rd_en` → 4 拍延迟 → 1 beat/拍）+ 图案 `addr[7:0]^addr[15:8]^0x5A`；跑完从 plane 回读 1280 个 unit 算 40bit 校验和；`led[0]=done`、`led[1]=PASS`、`led[2]=FAIL`、`led[3]=busy` |
-| `tb_board.v` | 仿真自检（就是上面的假 DDR + 校验和比对），已 **PASS**，校验和 = `c2eaf2eaaf` |
+| `tb_board.v` | 仿真自检（就是上面的假 DDR + 校验和比对），已 **PASS**，校验和 = `eb131b12a5`（★ BN 插入后重取） |
 | `conv_board.sdc` | 时钟约束（默认 100 MHz，`create_clock -period 10`） |
 | `filelist.f` / `run.do` / `run.bat` | 单独仿真 |
 
@@ -499,13 +864,17 @@ Setup worst slack : -0.118 ns
 
 ### 整帧回归（`tb_top_full`，320×240×3 → 160×120×8，768 个 tile）—— **PASS**
 
-- 跑到 `done`：**108,551 拍 ≈ 141 拍/tile ≈ 0.54 ms @200MHz**
-  （三步优化的轨迹：**186,887** → 133,127（pw 软件流水）→ 113,159（dw 窗口预取）
-   → **108,551**（`wl_start` 组合化 + `win_load` 的 `S_DONE` 直连下一窗口）；
-   一个 tile 的活动时间 150 → **126 拍**，其余是 23 个 tile 行边界等 DMA 补带 —— 见踩坑 #12）
-- 抽样 8 个 tile（四角 + 四边 + 中间）逐字节比对 plane 的 **320 个 unit，全部 0 失败**
+- 跑到 `done`：**118,943 拍 ≈ 154 拍/tile ≈ 0.59 ms @200MHz**
+  （四步优化的轨迹：**186,887** → 133,127（pw 软件流水）→ 113,159（dw 窗口预取）
+   → 108,551（`wl_start` 组合化 + `win_load` 的 `S_DONE` 直连下一窗口）
+   → 102,023（ch0 跨 tile 预取，但只对一半 tile 生效）→ **95,903**（修掉 `wcnt` 计数）
+   → **118,943**（★ 插入 BatchNorm2d：pw 的"格"5 → 8 拍、`S_PW` 50 → 80 拍，**数据变了**
+     所以校验和也必须跟着变。BN 复用了这 100 个 PE 和 DSP 的 C 端口，**没有增加任何乘法器/DSP**；
+     一个 tile 的活动时间 118 → **155 拍**，其余是 23 个 tile 行边界等 DMA 补带 —— 见踩坑 #12）
+- 抽样 8 个 tile（四角 + 四边 + 中间）逐字节比对 plane 的 **320 个 unit，全部 0 失败**（黄金含 BN）
 - 窗口装载握手计数校验：`win_req = wl_start = win_vld = 2304`（= 768 tile × 3 通道），不多不少
 - 片数实测：`band12` 12 片 + `plane` 120 片 = **132 / 256 = 51.6%**（`rtl/conv2/count_bram.do` 在仿真里数的）
+  —— BN 是纯算术、不占存储，**片数不变**
 
 > 速度参考：ModelSim 10.4 大约 **700~800 拍/秒**（100 个 DSP48 + 132 片 BRAM 行为模型）。
 > `timescale` 由 1ps 改 1ns **不会变快**（tb 只有 ns 级事件，精度不影响事件数）；

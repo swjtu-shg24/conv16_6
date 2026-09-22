@@ -128,7 +128,7 @@ w -divider {=== 6. conv_l1 / pw 相位：1x1 点卷积 + 量化 + 2x2 池化（�
 w -radix unsigned u_top/u_l1/oc
 w -radix unsigned u_top/u_l1/pc
 w -radix unsigned u_top/u_l1/pw_cin
-w -radix hex {u_top/u_l1/pe_out[0]}
+w -radix hex {u_top/u_l1/pe_out}
 w u_top/u_l1/acc_en_pw
 w -radix dec {u_top/u_l1/u_pe/pe_gen[0]/pe_inst/acc}
 w -radix unsigned {u_top/u_l1/qq}

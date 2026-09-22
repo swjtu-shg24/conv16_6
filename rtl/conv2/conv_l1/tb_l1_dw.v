@@ -32,10 +32,22 @@ module tb_l1_dw;
     wire [35:0] peo [0:99];
     wire        busy, done;
 
+    // BN 参数（本 tb 只查 dw 相位，显式接上避免悬空成 z）
+    wire [17:0] bna [0:7];
+    wire [17:0] bnb [0:7];
+    genvar gbn;
+    generate
+        for (gbn = 0; gbn < 8; gbn = gbn + 1) begin : g_bn_flat
+            assign bna[gbn] = 18'd384;
+            assign bnb[gbn] = 18'd2560;
+        end
+    endgenerate
+
     conv_l1 #(.CIN(CIN)) u_l1 (
         .clk(clk), .rstn(rstn), .start(start),
         .win_req(win_req), .win_ch(win_ch), .win_d(win_d), .win_vld(win_vld),
         .w_dw(wdw), .w_pw(wpw),
+        .bn_a(bna), .bn_b(bnb),
         .dwc(dwc), .peo_dbg(peo), .busy(busy), .done(done)
     );
 

@@ -1,4 +1,10 @@
 module pe 
+#(
+    // ★ C 端口加 bias 开关：
+    //   0 = 保持原行为（N_SEL="CONST0"，O = A*B）—— 所有老例化点不用改、逐位不变
+    //   1 = 走 DSP 的 C 端口（N_SEL="C"，O = A*B + c_in）—— BatchNorm 的 y=a*x+b 用
+    parameter C_BIAS_EN = 0
+)
 (
     input        clk,
     input        rstn,
@@ -9,6 +15,7 @@ module pe
     input        op,//0为pe_output=b_in*a_in;1为卷积数据复用模式
     input        acc_en_pw, //在op为1时默认开启累加，但是在op为0时如需要累加需拉高acc_en_dw, 
     input        acc_clr,
+    input [17:0] c_in,       // ★ C_BIAS_EN=1 时作为 bias 加进 DSP（18bit 有符号，内部扩展到 48bit）
     input [17:0] right_a_in,
     input [17:0] buttom_a_in,//a为数据
     input [17:0] load_a_in,
@@ -121,9 +128,18 @@ EFX_DSP48 #(
     .B_REG       (1'b1),
     .P_REG       (1'b0),
     .M_SEL       ("P"),       // 加法器 A = 乘法结果
-    .N_SEL       ("CONST0"),       // 加法器 B = 上一拍累加结果（反馈）
+    // ★ C_BIAS_EN=1 时加法器 B 取 C 端口 → O = A*B + C（BatchNorm 的 bias）
+    //   默认 "CONST0" ⇒ O = A*B + 0，与原来逐位一致
+    .N_SEL       (C_BIAS_EN ? "C" : "CONST0"),
     .W_REG       (1'b0),      // ★ 累加寄存器使能（必须为1）
-    .W_SEL       ("P"),       // 移位器输入取 W_p（累加结果）
+    // ★★ 关键：efx_dsp48.v 里是
+    //      assign W = (W_SEL == "P") ? P_a : W_p;
+    //    原来 W_SEL="P" ⇒ W = P_a **把加法器的结果 M+N 直接绕过去了**，
+    //    所以光把 N_SEL 改成 "C" 是没用的（实测 b≠0 时 bias 完全不见）。
+    //    要拿到加法器输出必须 W_SEL="X"（原语里 W_SEL 只允许 "P"/"X"：
+    //      assign W = (W_SEL == "P") ? P_a : W_p;   ⇒ "X" 才是 W = W_p = M+N）
+    //    N_SEL="CONST0" 时 X = M+0 = P_a，所以这个改动对老行为同样逐位中性。
+    .W_SEL       (C_BIAS_EN ? "X" : "P"),
     .O_REG       (1'b0),      // 输出是否再打一拍
     .OP_REG      (1'b1),
     .CASCOUT_SEL ("P"),
@@ -139,7 +155,7 @@ EFX_DSP48 #(
 ) u_dsp (
     .A          ({input_reg_a[0][17],input_reg_a[0]}),          // 19-bit 乘数
     .B          (input_reg_b),          // 18-bit 乘数
-    .C          (18'd0),     
+    .C          (C_BIAS_EN ? c_in : 18'd0),
     .OP         (2'b00),      // 00=加（01=减）
     .SHIFT_ENA  (1'b0),       // 不锁存移位量
     .CLK        (clk),

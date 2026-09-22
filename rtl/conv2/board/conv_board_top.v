@@ -111,10 +111,17 @@ module conv_board_top #(
     //------------------------------------------------------------------
     wire [17:0] wdw [0:26];
     wire [17:0] wpw [0:23];
+    // BatchNorm2d 参数（板级仍用老的固定常数 384/2560，与原来的行为逐位一致）
+    wire [17:0] bna [0:7];
+    wire [17:0] bnb [0:7];
     genvar g;
     generate
         for (g = 0; g < 27; g = g + 1) assign wdw[g] = (g%9) + 1;
         for (g = 0; g < 24; g = g + 1) assign wpw[g] = (g%3) + 1;
+        for (g = 0; g <  8; g = g + 1) begin
+            assign bna[g] = 18'd384;
+            assign bnb[g] = 18'd2560;
+        end
     endgenerate
 
     //------------------------------------------------------------------
@@ -136,6 +143,7 @@ module conv_board_top #(
         .w_read_data_channel1(rd_data), .w_read_data_valid_channel1(rd_valid),
         .w_read_data_id_channel1(rd_data_id),
         .w_dw(wdw), .w_pw(wpw),
+        .bn_a(bna), .bn_b(bnb),
         .p2_rd_en(p2_rd_en), .p2_rd_bank(p2_rd_bank),
         .p2_rd_addr(p2_rd_addr), .p2_rd_data(p2_rd_data),
         .done(done)

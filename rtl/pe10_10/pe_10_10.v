@@ -1,11 +1,14 @@
 module pe_10_10#(
-   parameter  KERNEL_SIZE=3
+   parameter  KERNEL_SIZE=3,
+   // ★ 透传给 pe：1 = 用 DSP 的 C 端口加 bias（BatchNorm y=a*x+b）
+   parameter  C_BIAS_EN=0
 )(
     input        clk,
     input        rstn,
     input        op,//0为pe_output=b_in*a_in;1为卷积数据复用模式
     input        acc_en_pw,
     input        acc_clr,
+    input [17:0] c_in,       // ★ C_BIAS_EN=1 时作为 bias（18bit 有符号）广播给 100 个 PE
     input [17:0] right_a_in_last_line[0:9],
     input [17:0] buttom_a_in_last_line[0:9],//a为数据
     input [17:0] load_a_in[0:99],
@@ -70,12 +73,13 @@ always @(posedge clk ) begin
 end
 generate
   for (genvar i = 0; i < 100; i++) begin : pe_gen
-    pe pe_inst (
+    pe #(.C_BIAS_EN(C_BIAS_EN)) pe_inst (
       .clk             (clk),
       .rstn            (rstn),
       .op              (op),
       .acc_en_pw        (acc_en_pw),
       .acc_clr          (acc_clr),
+      .c_in            (c_in),
       .kernel_width    (kernel_width),
       .kernel_height   (kernel_height),
       .right_a_in      (right_a_in[i]),

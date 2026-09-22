@@ -86,6 +86,17 @@ module tb_top_full;
         w_ready = 1;
     end
 
+    // ---------------- BatchNorm2d 参数（逐 oc 口；老 tb 全部用原来的 384/2560，行为逐位不变）----------------
+    wire [17:0] bna [0:7];
+    wire [17:0] bnb [0:7];
+    genvar gbn;
+    generate
+        for (gbn = 0; gbn < 8; gbn = gbn + 1) begin : g_bn_old
+            assign bna[gbn] = 18'd384;
+            assign bnb[gbn] = 18'd2560;
+        end
+    endgenerate
+
     // ---------------- DUT ----------------
     wire [39:0] p2_rd_data;
     wire        done;
@@ -103,6 +114,7 @@ module tb_top_full;
         .w_read_data_channel1(rd_data), .w_read_data_valid_channel1(rd_valid),
         .w_read_data_id_channel1(rd_data_id),
         .w_dw(wdw), .w_pw(wpw),
+        .bn_a(bna), .bn_b(bnb),
         .p2_rd_en(p2_rd_en_r), .p2_rd_bank(p2_rd_bank_r),
         .p2_rd_addr(p2_rd_addr_r), .p2_rd_data(p2_rd_data),
         .done(done)
@@ -172,6 +184,10 @@ module tb_top_full;
                             for (ch_ = 0; ch_ < 3; ch_ = ch_ + 1)
                                 s = s + dwcv[ch_] * wpw[oc*3 + ch_];
                             v = (s + 128) >>> 8;
+                            if (v < 0)   v = 0;
+                            if (v > 255) v = 255;
+                            // ★ BatchNorm2d（conv_top 的 BN_A/BN_B，Q8）
+                            v = (384 * v + 2560) >>> 8;
                             if (v < 0)   v = 0;
                             if (v > 255) v = 255;
                             if (v > mx) mx = v;
@@ -262,7 +278,10 @@ module tb_top_full;
             $display("  抽样 tile(%0d,%0d): 失败 %0d / 40", sr[si], sc[si], samp_fail[si]);
 
         // 打印 RTL 在 tile(0,31) 的 dwc[ch][0..4]（手算应为 30/35/40 @p=0）
-        $display("  DBG win_req=%0d wl_start=%0d win_vld=%0d (expect 2304 each)", n_req, n_start, n_vld);
+        // ★ ch0 跨 tile 预取之后，conv_l1 只在"tile 行首个 tile"才自己发 ch0 请求：
+        //   NTILE_R=24 行 → win_req = 2304 - (768-24) = 1560，而 wl_start/win_vld 仍是 2304
+        $display("  DBG win_req=%0d wl_start=%0d win_vld=%0d (expect 1560 / 2304 / 2304)",
+                 n_req, n_start, n_vld);
         $display("  DBG wl last: tr=%0d tc_last=%0d ch=%0d slot=%0d",
                  u_top.u_wl.row_base_q / 10, u_top.u_wl.tc_is_last,
                  u_top.u_wl.chr_q, u_top.u_wl.slot_q);

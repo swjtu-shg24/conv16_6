@@ -12,7 +12,8 @@
 
 module conv_pool_arr #(
     parameter integer ROWS = 5,
-    parameter integer COLS = 5
+    parameter integer COLS = 5,
+    parameter integer SIGNED_CMP = 0      // ★ Q4.4 有符号数据必须置 1（见 conv_cmp4_tree）
 )(
     input  wire        clk,
     input  wire        rstn,
@@ -26,7 +27,7 @@ module conv_pool_arr #(
     generate
         for (gr = 0; gr < ROWS; gr = gr + 1) begin : g_row
             for (gc = 0; gc < COLS; gc = gc + 1) begin : g_col
-                conv_cmp4_tree u_tree (
+                conv_cmp4_tree #(.SIGNED_CMP(SIGNED_CMP)) u_tree (
                     .clk  (clk),
                     .rstn (rstn),
                     .en   (en),

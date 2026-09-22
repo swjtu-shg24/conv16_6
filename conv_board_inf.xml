@@ -37,7 +37,14 @@
     <efx:sim_info/>
     <efx:misc_info/>
     <efx:ooc_info/>
-    <efx:ip_info/>
+    <efx:ip_info>
+        <efx:ip instance_name="instancenorm_sqrt" path="ip/instancenorm_sqrt/settings.json" ooc="false">
+            <efx:ip_src_file name="instancenorm_sqrt.v"/>
+        </efx:ip>
+        <efx:ip instance_name="instancenorm_divider_2" path="ip/instancenorm_divider_2/settings.json" ooc="false">
+            <efx:ip_src_file name="instancenorm_divider_2.sv"/>
+        </efx:ip>
+    </efx:ip_info>
     <efx:synthesis tool_name="efx_map">
         <efx:param name="work_dir" value="work_board" value_type="e_string"/>
         <efx:param name="write_efx_verilog" value="on" value_type="e_bool"/>
@@ -78,6 +85,8 @@
         <efx:param name="dsp-mac-packing" value="1" value_type="e_option"/>
         <efx:param name="insert-carry-skip" value="0" value_type="e_option"/>
         <efx:param name="pack-luts-to-comb4" value="0" value_type="e_option"/>
+        <efx:param name="include" value="ip/instancenorm_sqrt" value_type="e_string"/>
+        <efx:param name="include" value="ip/instancenorm_divider_2" value_type="e_string"/>
     </efx:synthesis>
     <efx:place_and_route tool_name="efx_pnr">
         <efx:param name="work_dir" value="work_board_pnr" value_type="e_string"/>

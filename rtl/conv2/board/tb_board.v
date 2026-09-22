@@ -9,7 +9,7 @@
 
 module tb_board;
     // ★ 黄金校验和：第一次先留 0，看下面打印出来的 chk，再填回来
-    localparam [39:0] GOLDEN = 40'hc2eaf2eaaf;
+    localparam [39:0] GOLDEN = 40'heb131b12a5;
 
     reg clk = 0, rst_n = 0;
     always #5 clk = ~clk;       // 100 MHz

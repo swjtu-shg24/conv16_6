@@ -42,11 +42,23 @@ module tb_l1_time;
     wire [35:0] peo [0:99];
     wire        busy, done;
 
+    // BN 参数（本 tb 只数拍数，显式接上避免悬空成 z）
+    wire [17:0] bna [0:7];
+    wire [17:0] bnb [0:7];
+    genvar gbn;
+    generate
+        for (gbn = 0; gbn < 8; gbn = gbn + 1) begin : g_bn_flat
+            assign bna[gbn] = 18'd384;
+            assign bnb[gbn] = 18'd2560;
+        end
+    endgenerate
+
     conv_l1 #(.CIN(CIN), .COUT(COUT)) u_l1 (
         .clk(clk), .rstn(rstn), .start(start),
         .tile_r(TR[4:0]), .tile_c(TC[5:0]),
         .win_req(win_req), .win_ch(win_ch), .win_d(win_d), .win_vld(win_vld),
         .w_dw(wdw), .w_pw(wpw),
+        .bn_a(bna), .bn_b(bnb),
         .pool_q(pool_q), .pool_oc(pool_oc), .pool_vld(pool_vld),
         .p2_wr_en(p2_wr_en), .p2_wr_bank(p2_wr_bank),
         .p2_wr_addr(p2_wr_addr), .p2_wr_data(p2_wr_data),
@@ -184,26 +196,23 @@ module tb_l1_time;
         $display("    S_DONE                     : %0d 拍", cyc_done);
         $display("    ---- 合计                 : %0d 拍", cyc_total);
 
-        $display("\n  ---------- ② S_PW 里每个 oc 花多少拍 ----------");
-        for (k = 0; k < COUT; k = k + 1)
-            $display("    oc=%0d : %0d 拍", k, oc_hist[k]);
+        $display("\n  ---------- ② S_PW 里每个「组」（= 正在喂的 oc 号 g）花多少拍 ----------");
+        $display("     ★ 软件流水：oc=g 的 a/b 在组的 m=0..3 喂，结果 m=7 才出来；");
+        $display("       写回的是 oc=g-2、BN 用的是 oc=g-1 —— 所以每组只有 8 拍，");
+        $display("       一个 oc 从喂到写完实际跨 3 组 = 24 拍（但吞吐是 8 拍/oc）。");
+        for (k = 0; k < COUT + 2; k = k + 1)
+            $display("    组 g=%0d : %0d 拍", k, oc_hist[k]);
 
         $display("\n  ---------- ③ S_PW 里 pc 直方图（该拍做了什么事）----------");
-        $display("    pc= 0 : %0d 拍   (空转，只为起 pw_cin 计数器)", pc_hist[0]);
+        $display("    pc= 0 : %0d 拍   (载入 a=qq 给 BN + 喂 b=bn_a)", pc_hist[0]);
         $display("    pc= 1 : %0d 拍   (载入 a=dwc0 + 喂 b=w0 + acc_en_pw)", pc_hist[1]);
         $display("    pc= 2 : %0d 拍   (载入 a=dwc1 + 喂 b=w1 + acc_en_pw)", pc_hist[2]);
-        $display("    pc= 3 : %0d 拍   (载入 a=dwc2 + 喂 b=w2 + acc_en_pw)", pc_hist[3]);
-        $display("    pc= 4 : %0d 拍   (DSP 第1个乘积 -> acc 装载)", pc_hist[4]);
-        $display("    pc= 5 : %0d 拍   (DSP 第2个乘积 -> acc 累加)", pc_hist[5]);
-        $display("    pc= 6 : %0d 拍   (DSP 第3个乘积 -> acc 累加)", pc_hist[6]);
-        $display("    pc= 7 : %0d 拍   (量化 -> qq)", pc_hist[7]);
-        $display("    pc= 8 : %0d 拍   (池化 en 第1拍)", pc_hist[8]);
-        $display("    pc= 9 : %0d 拍   (池化 en 第2拍)", pc_hist[9]);
-        $display("    pc=10 : %0d 拍   (写回 row0 + 池化结果可用)", pc_hist[10]);
-        $display("    pc=11 : %0d 拍   (写回 row1)", pc_hist[11]);
-        $display("    pc=12 : %0d 拍   (写回 row2)", pc_hist[12]);
-        $display("    pc=13 : %0d 拍   (写回 row3)", pc_hist[13]);
-        $display("    pc=14 : %0d 拍   (写回 row4 + 切下一个 oc)", pc_hist[14]);
+        $display("    pc= 3 : %0d 拍   (载入 a=dwc2 + 喂 b=w2 + acc_en_pw ; C=bn_b)", pc_hist[3]);
+        $display("    pc= 4 : %0d 拍   (BN 乘积 -> bnq ; pw 第1个乘积 -> acc 装载)", pc_hist[4]);
+        $display("    pc= 5 : %0d 拍   (池化 en 第1拍 ; pw 第2个乘积 -> acc 累加)", pc_hist[5]);
+        $display("    pc= 6 : %0d 拍   (池化 en 第2拍 ; pw 第3个乘积 -> acc 累加)", pc_hist[6]);
+        $display("    pc= 7 : %0d 拍   (量化 -> qq ; 写回基底 ; 置 BN 的 fm_wdata_en)", pc_hist[7]);
+        $display("    ★ BN 之后一个组是 8 拍（原来是 15 拍），pc=8..14 已不再使用");
 
         $display("\n  ---------- ④ 对外部存储的访问次数 ----------");
         $display("    win_req  合计        : %0d 次  (3 个输入通道各 1 次)", n_winreq);
@@ -211,7 +220,7 @@ module tb_l1_time;
         $display("      - 在 S_PW   发出   : %0d 次  <== 点卷积相位对 band 的读请求", n_winreq_in_pw);
         $display("    p2_wr_en 合计        : %0d 次  (8 oc x 5 行 = 40 unit)", n_wr);
         $display("      - 在 S_PW   发出   : %0d 次", n_pw_wr);
-        $display("    fm_wdata_en 拉高     : %0d 拍  (8 oc x 3 个输入通道 = 24 次载入)", n_fmwdata);
+        $display("    fm_wdata_en 拉高     : %0d 拍  (8 oc x (3 个 pw 通道 + 1 次 BN 载入) = 32 次)", n_fmwdata);
         $display("    acc_en_pw   拉高     : %0d 拍", n_accen);
 
         $display("\n  ---------- ⑤ 结论数字 ----------");
@@ -230,8 +239,9 @@ module tb_l1_time;
         $display("    填充 + 写跨度 = %0d + %0d = %0d  （S_PW = %0d）",
                  t_wr0 - t_spw0, t_wr1 - t_wr0 + 1,
                  (t_wr0 - t_spw0) + (t_wr1 - t_wr0 + 1), t_spw1 - t_spw0);
-        $display("    S_PW 里喂 a 的拍数      : %0d  (= %0d oc x %0d 个输入通道)", n_feed_in_spw, COUT, CIN);
-        $display("    S_PW 里 PE 真正累加的拍数: %0d", n_acc_in_spw);
+        $display("    S_PW 里喂 a 的拍数      : %0d  (= %0d oc x (%0d pw 通道 + 1 BN))",
+                 n_feed_in_spw, COUT, CIN);
+        $display("    S_PW 里 PE 真正触发 acc_en 的拍数: %0d", n_acc_in_spw);
         $display("    -> 写口占用率 = %0d/%0d = %0d%%",
                  t_wr1 - t_wr0 + 1, t_spw1 - t_spw0,
                  100 * (t_wr1 - t_wr0 + 1) / ((t_spw1 - t_spw0) != 0 ? (t_spw1 - t_spw0) : 1));
