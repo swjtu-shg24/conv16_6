@@ -1,0 +1,10 @@
+定点推理出图
+======================================================================
+
+对比                                 max|d|    mean|d|   PSNR(dB)
+B_input_q44_only                   0.6665    0.03881      31.24
+C_L1_fixed_inorm                   0.7873    0.09834      23.78
+E_L1_fixed_gain8                   0.6368    0.04756      29.59
+D_all_fixed_inorm                  0.8938    0.10883      23.02
+F_all_fixed_batchnorm(its baseline)     1.0728    0.13726      20.74
+B站：Batchnorm基线 vs InstanceNorm基线 max|d|=0.9565 PSNR=21.26

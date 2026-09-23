@@ -95,3 +95,20 @@ transcript
 *.dbg.rpt.xml
 *.pt.rpt.xml
 *.route.rpt.xml
+
+# -----------------------------------------------------------------------------
+# 4) 例外：Python 工作目录 —— **整目录跟踪**（2026-09-23）
+#
+#    rtl/conv2/picture_and_para/ 是仿真激励与 golden 数据的生成环境：
+#      .py 脚本（stim_model / gen_stim / gen_l2_stim / lianghua_infer ...）
+#      test.jpg、netG_B_epoch11.pth
+#      以及脚本产出的 .hex / .npz / .npy / dump*.txt / *.png / *.xlsx
+#    为了让另一台机器开箱即用，这里**整目录放行**（含约 24 MB 生成物）。
+#
+#    ⚠️ 代价：每次跑 gen_stim.py 或仿真都会改写其中的生成物，产生 diff，
+#       需要照常 `git add` + 提交，否则会一直挂在"修改"里。
+#    ⚠️ 本段必须放在**文件最后**：gitignore 以「最后一条匹配的规则」为准，
+#       放在前面会被第 3 节的产物规则重新忽略掉。
+# -----------------------------------------------------------------------------
+!rtl/conv2/picture_and_para/
+!rtl/conv2/picture_and_para/**

@@ -43,10 +43,16 @@ rtl/pe_test/*.v/*.f/*.do/*.bat   DSP 配置验证（pe_test.v / pe_test_tb.v / f
 rtl/pe_test_top.v              综合用测试顶层
 rtl/pe_16_6/**                 16×6 PE 阵列（.v/.f/.do/.bat/.json）
 rtl/pe10_10/**                 10×10 PE 阵列（.v/.f/.do/.bat/.json）
+rtl/conv2/picture_and_para/**  Python 激励/golden 生成环境（**整目录跟踪**，含生成物；见下方例外）
 ```
 
 > **不再跟踪**：`work_syn/run_efx_map.sh`、`work_pnr/run_efx_pnr.sh`、`work_pnr/run_efx_pgm.sh`
 > （Efinity 自动生成，内含本机绝对路径）—— 见第 3.2 节与第 6 节。
+>
+> **整目录跟踪的例外（2026-09-23）**：`rtl/conv2/picture_and_para/**` —— 为了让另一台机器
+> 开箱即用，连 `.py` 脚本产出的 `.hex` / `.npz` / `.npy` / `dump*.txt` / `*.png` / `*.xlsx`
+> 一起跟踪（约 24 MB，65 个文件）。规则在 `.gitignore` 第 4 节，必须放在文件最后。
+> ⚠️ 副作用：跑 `gen_stim.py` 或仿真会改写这些生成物 → 会持续出现 diff，需要照常提交。
 
 ---
 
